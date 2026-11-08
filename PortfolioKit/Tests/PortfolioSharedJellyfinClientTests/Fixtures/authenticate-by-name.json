@@ -1,0 +1,12 @@
+{
+  "User": {
+    "Name": "alex",
+    "ServerId": "f2a4c1d3e5b64a7f9c8d0e1f2a3b4c5d",
+    "Id": "6c1e2f8a9b0d4c3e8f7a6b5c4d3e2f1a",
+    "PrimaryImageTag": "a1b2c3d4e5f6",
+    "HasPassword": true,
+    "HasConfiguredPassword": true
+  },
+  "AccessToken": "0123456789abcdef0123456789abcdef",
+  "ServerId": "f2a4c1d3e5b64a7f9c8d0e1f2a3b4c5d"
+}

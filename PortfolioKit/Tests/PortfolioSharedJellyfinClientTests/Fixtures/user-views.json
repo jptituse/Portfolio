@@ -1,0 +1,31 @@
+{
+  "Items": [
+    {
+      "Name": "Movies",
+      "Id": "aa11bb22cc33dd44ee55ff6677889900",
+      "Type": "CollectionFolder",
+      "CollectionType": "movies",
+      "ImageTags": { "Primary": "v-movies" }
+    },
+    {
+      "Name": "Shows",
+      "Id": "bb22cc33dd44ee55ff66778899001122",
+      "Type": "CollectionFolder",
+      "CollectionType": "tvshows",
+      "ImageTags": {}
+    },
+    {
+      "Name": "Everything Else",
+      "Id": "cc33dd44ee55ff6677889900112233aa",
+      "Type": "CollectionFolder"
+    },
+    {
+      "Name": "Books",
+      "Id": "dd44ee55ff6677889900112233aabb44",
+      "Type": "CollectionFolder",
+      "CollectionType": "books"
+    }
+  ],
+  "TotalRecordCount": 4,
+  "StartIndex": 0
+}
