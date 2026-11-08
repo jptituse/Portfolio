@@ -1,7 +1,7 @@
 import Foundation
 
 /// A media server the app has checked and can talk to.
-public struct ServerInfo: Hashable, Sendable {
+public struct ServerInfo: Hashable, Sendable, Codable {
     /// The server's stable ID, which survives URL changes.
     public let id: String
     public let name: String

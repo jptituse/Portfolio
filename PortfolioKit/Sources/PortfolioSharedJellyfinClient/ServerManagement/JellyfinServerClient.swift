@@ -2,7 +2,8 @@ import Foundation
 import JellyfinAPI
 import PortfolioShared
 
-/// Talks to Jellyfin servers before anyone is signed in: checks an address and signs a user in.
+/// Talks to Jellyfin servers about servers and sessions: checks an address, signs a user in, and
+/// (as the app's `SessionAuthority`) checks and ends saved sessions.
 public struct JellyfinServerClient: Sendable {
     public let identity: ClientIdentity
     private let makeSessionConfiguration: @Sendable () -> URLSessionConfiguration
@@ -44,10 +45,11 @@ public struct JellyfinServerClient: Sendable {
 
     /// A fresh SDK client per operation: the SDK's client stores the access token in mutable state,
     /// so instances are never shared.
-    private func makeClient(url: URL) -> JellyfinClient {
+    func makeClient(url: URL, accessToken: String? = nil) -> JellyfinClient {
         JellyfinClient(
             configuration: .init(
                 url: url,
+                accessToken: accessToken,
                 client: identity.clientName,
                 deviceName: identity.deviceName,
                 deviceID: identity.deviceID,
@@ -57,7 +59,7 @@ public struct JellyfinServerClient: Sendable {
         )
     }
 
-    private func perform<T>(_ phase: RequestPhase, _ operation: () async throws -> T) async throws -> T {
+    func perform<T>(_ phase: RequestPhase, _ operation: () async throws -> T) async throws -> T {
         do {
             return try await operation()
         } catch {

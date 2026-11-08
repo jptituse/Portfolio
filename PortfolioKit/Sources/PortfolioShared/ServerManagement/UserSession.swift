@@ -1,5 +1,5 @@
 /// A signed-in user on a server, with the access token every authenticated request needs.
-public struct UserSession: Hashable, Sendable {
+public struct UserSession: Hashable, Sendable, Codable {
     public let server: ServerInfo
     public let user: User
     public let accessToken: String

@@ -4,7 +4,7 @@ import Synchronization
 /// An in-process stand-in for a Jellyfin server, for unit tests.
 ///
 /// It answers the endpoints the client uses with responses shaped like a real server's, checks
-/// credentials against its accounts, and records every request. Requests never leave the process:
+/// credentials against its accounts, tracks the access tokens it issued, and records every request. Requests never leave the process:
 /// `MockJellyfinServer.sessionConfiguration` routes them to the server registered for their host,
 /// and each instance gets its own host, so tests can run in parallel.
 final class MockJellyfinServer: Sendable {
@@ -35,6 +35,8 @@ final class MockJellyfinServer: Sendable {
     let behavior: Behavior
 
     private let recorded = Mutex<[URLRequest]>([])
+    /// Access tokens the server currently accepts, and whose they are.
+    private let sessions = Mutex<[String: Account]>([:])
 
     init(
         name: String = "Living Room",
@@ -60,6 +62,14 @@ final class MockJellyfinServer: Sendable {
 
     /// Every request the server received, in order.
     var requests: [URLRequest] { recorded.withLock { $0 } }
+
+    /// Access tokens the server currently accepts.
+    var activeTokens: Set<String> { sessions.withLock { Set($0.keys) } }
+
+    /// Revokes every session, like removing the device in the Jellyfin dashboard.
+    func revokeAllSessions() {
+        sessions.withLock { $0.removeAll() }
+    }
 
     /// Hand this to the client under test so its requests reach mock servers.
     static var sessionConfiguration: URLSessionConfiguration {
@@ -95,6 +105,13 @@ final class MockJellyfinServer: Sendable {
             return Response(status: 200, json: publicSystemInfo)
         case ("POST", "/Users/AuthenticateByName"):
             return authenticate(request)
+        case ("GET", "/Users/Me"):
+            guard let account = account(for: request) else { return Response(status: 401) }
+            return Response(status: 200, json: userJSON(account))
+        case ("POST", "/Sessions/Logout"):
+            guard let token = token(in: request), account(for: request) != nil else { return Response(status: 401) }
+            sessions.withLock { _ = $0.removeValue(forKey: token) }
+            return Response(status: 204)
         default:
             return Response(status: 404)
         }
@@ -123,18 +140,41 @@ final class MockJellyfinServer: Sendable {
         else {
             return Response(status: 401)
         }
-        let user: [String: Any] = [
+        let token = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        sessions.withLock { $0[token] = account }
+        return Response(status: 200, json: [
+            "User": userJSON(account),
+            "AccessToken": token,
+            "ServerId": id,
+        ])
+    }
+
+    private func userJSON(_ account: Account) -> [String: Any] {
+        [
             "Name": account.name,
             "ServerId": id,
             "Id": account.id,
             "HasPassword": !account.password.isEmpty,
             "HasConfiguredPassword": !account.password.isEmpty,
         ]
-        return Response(status: 200, json: [
-            "User": user,
-            "AccessToken": UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: ""),
-            "ServerId": id,
-        ])
+    }
+
+    /// The account behind the request's access token, if the server still accepts it.
+    private func account(for request: URLRequest) -> Account? {
+        guard let token = token(in: request) else { return nil }
+        return sessions.withLock { $0[token] }
+    }
+
+    /// Reads `Token=…` from the `Authorization: MediaBrowser …` header.
+    private func token(in request: URLRequest) -> String? {
+        guard let header = request.value(forHTTPHeaderField: "Authorization"), header.hasPrefix("MediaBrowser ") else {
+            return nil
+        }
+        return header.dropFirst("MediaBrowser ".count)
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.hasPrefix("Token=") }
+            .map { String($0.dropFirst("Token=".count)) }
     }
 
     // MARK: Routing
