@@ -1,0 +1,27 @@
+{
+  "Name": "Arrival",
+  "ServerId": "f2a4c1d3e5b64a7f9c8d0e1f2a3b4c5d",
+  "Id": "3e5c7a9b1d2f4e6a8c0b2d4f6a8c0e2b",
+  "Type": "Movie",
+  "IsFolder": false,
+  "Overview": "A linguist works with the military to communicate with alien lifeforms.",
+  "ProductionYear": 2016,
+  "RunTimeTicks": 69780000000,
+  "OfficialRating": "PG-13",
+  "CommunityRating": 7.9,
+  "Genres": ["Drama", "Science Fiction"],
+  "ImageTags": {
+    "Primary": "p-4f1c",
+    "Logo": "l-9a2e",
+    "Thumb": "t-77b0"
+  },
+  "BackdropImageTags": ["b-0d13", "b-58aa"],
+  "UserData": {
+    "PlaybackPositionTicks": 36000000000,
+    "PlayCount": 1,
+    "IsFavorite": true,
+    "Played": false,
+    "Key": "329865",
+    "ItemId": "3e5c7a9b1d2f4e6a8c0b2d4f6a8c0e2b"
+  }
+}

@@ -20,6 +20,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/jellyfin/jellyfin-sdk-swift", .upToNextMinor(from: "3.4.0")),
+        // The HTTP layer under jellyfin-sdk-swift. Declared directly because its `APIError` carries
+        // the status codes that `JellyfinError` classifies.
+        .package(url: "https://github.com/kean/Get", from: "2.2.1"),
         // Pinned exactly: the engine moves fast and ships a prebuilt FFmpeg, so updates are deliberate.
         // All optional traits are compiled in; using each one will be a runtime setting.
         .package(
@@ -40,6 +43,7 @@ let package = Package(
             dependencies: [
                 "PortfolioShared",
                 .product(name: "JellyfinAPI", package: "jellyfin-sdk-swift"),
+                .product(name: "Get", package: "Get"),
             ]
         ),
         .target(
@@ -63,7 +67,15 @@ let package = Package(
         ),
 
         .testTarget(name: "PortfolioSharedTests", dependencies: ["PortfolioShared"]),
-        .testTarget(name: "PortfolioSharedJellyfinClientTests", dependencies: ["PortfolioSharedJellyfinClient"]),
+        .testTarget(
+            name: "PortfolioSharedJellyfinClientTests",
+            dependencies: [
+                "PortfolioSharedJellyfinClient",
+                .product(name: "JellyfinAPI", package: "jellyfin-sdk-swift"),
+                .product(name: "Get", package: "Get"),
+            ],
+            resources: [.copy("Fixtures")]
+        ),
         .testTarget(name: "PortfolioSharedPlaybackEngineTests", dependencies: ["PortfolioSharedPlaybackEngine"]),
         .testTarget(name: "PortfolioSharedAetherPlaybackEngineTests", dependencies: ["PortfolioSharedAetherPlaybackEngine"]),
         .testTarget(name: "PortfolioSharedUITests", dependencies: ["PortfolioSharedUI"]),
