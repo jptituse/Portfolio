@@ -12,45 +12,30 @@
   },
   "packages": [
     {
-      "kind": "remote",
-      "repository": "https://github.com/superuser404notfound/AetherEngine",
-      "version": {
-        "version": "7.59.0",
-      },
-      "traits": [
-        "DTSXObjectAudio",
-        "DolbyVisionStillReshaping",
-        "DualLayerDolbyVision",
-        "TrueHDObjectAudio",
-        "default",
-      ],
-    }, {
-      "kind": "remote",
-      "repository": "https://github.com/jellyfin/jellyfin-sdk-swift",
-      "version": {
-        "up-to-next-minor-version": "3.4.0",
-      },
+      "kind": "local",
+      "path": "../PortfolioKit",
     },
   ],
   "files": [
-    { "kind": "folder", "path": "Portfolio", "target-membership": [ "Portfolio" ] },
-    { "kind": "folder", "path": "PortfolioTests", "target-membership": [ "PortfolioTests" ] },
-    { "kind": "folder", "path": "PortfolioUITests", "target-membership": [ "PortfolioUITests" ] },
+    { "kind": "folder", "path": "PortfolioTV", "target-membership": [ "PortfolioTV" ] },
+    { "kind": "folder", "path": "PortfolioTVTests", "target-membership": [ "PortfolioTVTests" ] },
+    { "kind": "folder", "path": "PortfolioTVUITests", "target-membership": [ "PortfolioTVUITests" ] },
+    { "kind": "group", "name": "Frameworks" },
     {
       "kind": "group",
       "name": "Products",
       "children": [
-        { "path": "<PRODUCTS>/Portfolio.app", "id": "81F4079F309FCAA70034CB98", "type": "wrapper.application", "index": false },
-        { "path": "<PRODUCTS>/PortfolioTests.xctest", "id": "81F407AE309FCAA80034CB98", "type": "wrapper.cfbundle", "index": false },
-        { "path": "<PRODUCTS>/PortfolioUITests.xctest", "id": "81F407B8309FCAA80034CB98", "type": "wrapper.cfbundle", "index": false },
+        { "path": "<PRODUCTS>/PortfolioTV.app", "id": "81F4079F309FCAA70034CB98", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/PortfolioTVTests.xctest", "id": "81F407AE309FCAA80034CB98", "type": "wrapper.cfbundle", "index": false },
+        { "path": "<PRODUCTS>/PortfolioTVUITests.xctest", "id": "81F407B8309FCAA80034CB98", "type": "wrapper.cfbundle", "index": false },
       ],
     },
   ],
   "targets": [
     {
-      "name": "Portfolio",
+      "name": "PortfolioTV",
       "id": "81F4079E309FCAA70034CB98",
-      "product": "Products/Portfolio.app",
+      "product": "Products/PortfolioTV.app",
       "product-type": "application",
       "build-phases": [
         "compile-sources",
@@ -59,12 +44,12 @@
       ],
       "package-product-members": [
         {
-          "package": "AetherEngine",
-          "product-name": "AetherEngine",
+          "package": "PortfolioKit",
+          "product-name": "PortfolioSharedAetherPlaybackEngine",
           "build-phase": { "build-phase": "frameworks" },
         }, {
-          "package": "jellyfin-sdk-swift",
-          "product-name": "JellyfinAPI",
+          "package": "PortfolioKit",
+          "product-name": "PortfolioSharedUI",
           "build-phase": { "build-phase": "frameworks" },
         },
       ],
@@ -93,13 +78,13 @@
         "TARGETED_DEVICE_FAMILY": "3",
       },
     }, {
-      "name": "PortfolioTests",
+      "name": "PortfolioTVTests",
       "id": "81F407AD309FCAA80034CB98",
-      "product": "Products/PortfolioTests.xctest",
+      "product": "Products/PortfolioTVTests.xctest",
       "product-type": "bundle.unit-test",
-      "test-host-target": "Portfolio",
+      "test-host-target": "PortfolioTV",
       "dependencies": [
-        "Portfolio",
+        "PortfolioTV",
       ],
       "build-phases": [
         "compile-sources",
@@ -112,7 +97,7 @@
         "CURRENT_PROJECT_VERSION": "1",
         "GENERATE_INFOPLIST_FILE": "YES",
         "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "jonathanTitus.PortfolioTests",
+        "PRODUCT_BUNDLE_IDENTIFIER": "jonathanTitus.PortfolioTVTests",
         "PRODUCT_NAME": "$(TARGET_NAME)",
         "STRING_CATALOG_GENERATE_SYMBOLS": "NO",
         "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
@@ -120,17 +105,17 @@
         "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
         "SWIFT_VERSION": "5.0",
         "TARGETED_DEVICE_FAMILY": "3",
-        "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/Portfolio.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Portfolio",
+        "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/PortfolioTV.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PortfolioTV",
         "TVOS_DEPLOYMENT_TARGET": "26.0",
       },
     }, {
-      "name": "PortfolioUITests",
+      "name": "PortfolioTVUITests",
       "id": "81F407B7309FCAA80034CB98",
-      "product": "Products/PortfolioUITests.xctest",
+      "product": "Products/PortfolioTVUITests.xctest",
       "product-type": "bundle.ui-testing",
-      "test-host-target": "Portfolio",
+      "test-host-target": "PortfolioTV",
       "dependencies": [
-        "Portfolio",
+        "PortfolioTV",
       ],
       "build-phases": [
         "compile-sources",
@@ -142,7 +127,7 @@
         "CURRENT_PROJECT_VERSION": "1",
         "GENERATE_INFOPLIST_FILE": "YES",
         "MARKETING_VERSION": "1.0",
-        "PRODUCT_BUNDLE_IDENTIFIER": "jonathanTitus.PortfolioUITests",
+        "PRODUCT_BUNDLE_IDENTIFIER": "jonathanTitus.PortfolioTVUITests",
         "PRODUCT_NAME": "$(TARGET_NAME)",
         "STRING_CATALOG_GENERATE_SYMBOLS": "NO",
         "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
@@ -150,7 +135,7 @@
         "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
         "SWIFT_VERSION": "5.0",
         "TARGETED_DEVICE_FAMILY": "3",
-        "TEST_TARGET_NAME": "Portfolio",
+        "TEST_TARGET_NAME": "PortfolioTV",
       },
     },
   ],
