@@ -66,11 +66,19 @@ let package = Package(
             ]
         ),
 
-        .testTarget(name: "PortfolioSharedTests", dependencies: ["PortfolioShared"]),
+        // Test doubles shared by the test targets. Never linked into the app.
+        .target(
+            name: "PortfolioSharedTestSupport",
+            dependencies: ["PortfolioShared"],
+            path: "Tests/PortfolioSharedTestSupport"
+        ),
+
+        .testTarget(name: "PortfolioSharedTests", dependencies: ["PortfolioShared", "PortfolioSharedTestSupport"]),
         .testTarget(
             name: "PortfolioSharedJellyfinClientTests",
             dependencies: [
                 "PortfolioSharedJellyfinClient",
+                "PortfolioSharedTestSupport",
                 .product(name: "JellyfinAPI", package: "jellyfin-sdk-swift"),
                 .product(name: "Get", package: "Get"),
             ],

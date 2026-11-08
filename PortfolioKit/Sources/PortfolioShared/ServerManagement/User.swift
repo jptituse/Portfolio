@@ -1,5 +1,5 @@
 /// A Jellyfin user account.
-public struct User: Hashable, Sendable, Identifiable {
+public struct User: Hashable, Sendable, Identifiable, Codable {
     public let id: String
     public let name: String
     public let serverID: String?
