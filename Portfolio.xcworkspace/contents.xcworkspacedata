@@ -2,6 +2,9 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:Portfolio/Portfolio.xcodeproj">
+      location = "group:PortfolioKit">
+   </FileRef>
+   <FileRef
+      location = "group:PortfolioTV/PortfolioTV.xcodeproj">
    </FileRef>
 </Workspace>
