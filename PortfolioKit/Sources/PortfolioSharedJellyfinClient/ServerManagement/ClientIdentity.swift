@@ -1,7 +1,7 @@
 import Foundation
 
 #if canImport(UIKit)
-    import UIKit
+import UIKit
 #endif
 
 /// Who this app is, as the server sees it. Sent in the `Authorization: MediaBrowser …` header on
@@ -30,9 +30,9 @@ public struct ClientIdentity: Hashable, Sendable {
             ?? "Portfolio"
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0"
         #if canImport(UIKit)
-            let deviceName = UIDevice.current.name
+        let deviceName = UIDevice.current.name
         #else
-            let deviceName = Host.current().localizedName ?? "Mac"
+        let deviceName = Host.current().localizedName ?? "Mac"
         #endif
         return ClientIdentity(
             clientName: name,

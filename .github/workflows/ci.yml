@@ -57,16 +57,19 @@ jobs:
           key: spm-${{ runner.os }}-xcode${{ env.XCODE_VERSION }}-${{ hashFiles('Portfolio.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'PortfolioKit/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-xcode${{ env.XCODE_VERSION }}-
 
-      - name: Build the PortfolioTV app
+      # Unit tests only: the UI tests aren't run here yet (#26).
+      - name: Build and test the PortfolioTV app
         run: |
-          xcodebuild build \
+          xcodebuild test \
             -workspace Portfolio.xcworkspace \
             -scheme PortfolioTV \
             -destination "$DESTINATION" \
+            -only-testing:PortfolioTVTests \
+            -parallel-testing-enabled NO \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES" \
             -onlyUsePackageVersionsFromResolvedFile \
             -skipPackagePluginValidation \
-            -resultBundlePath "$RESULTS/app-build.xcresult" \
+            -resultBundlePath "$RESULTS/app-tests.xcresult" \
             -quiet \
             CODE_SIGNING_ALLOWED=NO
 
@@ -86,12 +89,13 @@ jobs:
       - name: Summarize test results
         if: always()
         run: |
-          bundle="$RESULTS/package-tests.xcresult"
-          [ -d "$bundle" ] || exit 0
-          xcrun xcresulttool get test-results summary --path "$bundle" | python3 -c '
+          summarize() {
+            bundle="$RESULTS/$1.xcresult"
+            [ -d "$bundle" ] || return 0
+            xcrun xcresulttool get test-results summary --path "$bundle" | python3 -c '
           import json, sys
           s = json.load(sys.stdin)
-          print("### PortfolioKit tests: %s" % s["result"])
+          print("### %s tests: %s" % (sys.argv[1], s["result"]))
           print()
           print("| Total | Passed | Failed | Skipped |")
           print("|---|---|---|---|")
@@ -99,7 +103,10 @@ jobs:
           for failure in s.get("testFailures", []):
               name = failure.get("testIdentifierString") or failure.get("testName", "?")
               print("- ❌ `%s`: %s" % (name, failure.get("failureText", "")))
-          ' >> "$GITHUB_STEP_SUMMARY"
+          ' "$2" >> "$GITHUB_STEP_SUMMARY"
+          }
+          summarize app-tests PortfolioTV
+          summarize package-tests PortfolioKit
 
       - name: Upload results
         if: failure()

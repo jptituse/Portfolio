@@ -1,4 +1,4 @@
-/// Where the app is with signing in, for the app shell to switch on.
+/// Where the app is with signing in, for `RootView` to switch on.
 public enum SessionState: Hashable, Sendable {
     /// Checking for a stored session at launch.
     case restoring
