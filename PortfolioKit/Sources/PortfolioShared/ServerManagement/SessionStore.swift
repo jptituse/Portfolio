@@ -15,8 +15,7 @@ public struct SessionStore: Sendable {
     public func load() throws -> UserSession? {
         guard let data = try storage.data(forKey: Self.key) else { return nil }
         guard let stored = try? JSONDecoder().decode(StoredSession.self, from: data),
-            stored.version == StoredSession.currentVersion
-        else {
+            stored.version == StoredSession.currentVersion else {
             try storage.removeData(forKey: Self.key)
             return nil
         }

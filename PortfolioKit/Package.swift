@@ -3,8 +3,8 @@
 import PackageDescription
 
 // Shared code for every Portfolio app target (tvOS first; iOS and visionOS later).
-// App targets stay thin: they link `PortfolioSharedUI` for screens and
-// `PortfolioSharedAetherPlaybackEngine` to provide the player engine.
+// `PortfolioSharedUI` holds the views every platform can use as they are. Each app target holds the
+// views specific to its platform, and links `PortfolioSharedAetherPlaybackEngine` for the player engine.
 // Module dependency direction is documented in docs/ROADMAP.md §2.
 let package = Package(
     name: "PortfolioKit",
@@ -86,7 +86,7 @@ let package = Package(
         ),
         .testTarget(name: "PortfolioSharedPlaybackEngineTests", dependencies: ["PortfolioSharedPlaybackEngine"]),
         .testTarget(name: "PortfolioSharedAetherPlaybackEngineTests", dependencies: ["PortfolioSharedAetherPlaybackEngine"]),
-        .testTarget(name: "PortfolioSharedUITests", dependencies: ["PortfolioSharedUI"]),
+        .testTarget(name: "PortfolioSharedUITests", dependencies: ["PortfolioSharedUI", "PortfolioSharedTestSupport"]),
     ],
     swiftLanguageModes: [.v6]
 )

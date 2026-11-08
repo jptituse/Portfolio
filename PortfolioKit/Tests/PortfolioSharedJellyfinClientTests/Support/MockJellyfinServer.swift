@@ -136,8 +136,7 @@ final class MockJellyfinServer: Sendable {
             let account = accounts.first(where: {
                 $0.name.caseInsensitiveCompare(credentials["Username"] ?? "") == .orderedSame
             }),
-            account.password == credentials["Pw"]
-        else {
+            account.password == credentials["Pw"] else {
             return Response(status: 401)
         }
         let token = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
@@ -195,8 +194,7 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         guard let host = request.url?.host,
-            let server = MockJellyfinServer.registry.withLock({ $0[host]?.server })
-        else {
+            let server = MockJellyfinServer.registry.withLock({ $0[host]?.server }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }

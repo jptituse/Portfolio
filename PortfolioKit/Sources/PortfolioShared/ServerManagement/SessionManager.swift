@@ -1,7 +1,7 @@
 import Observation
 
 /// Owns the signed-in session for the app: restores it at launch, saves it at sign-in and clears it
-/// at sign-out. The app shell observes `state`.
+/// at sign-out. `RootView` observes `state`.
 @MainActor
 @Observable
 public final class SessionManager {
