@@ -3,17 +3,24 @@ import PortfolioShared
 
 extension UserSession {
     /// A signed-in session for tests that don't talk to a server.
-    public static func sample(userName: String = "alex", token: String = "token-123") -> UserSession {
+    public static func sample(
+        userID: String = "user-1",
+        userName: String = "alex",
+        token: String = "token-123",
+        server: ServerInfo = .sample()
+    ) -> UserSession {
         UserSession(
-            server: ServerInfo(
-                id: "server-1",
-                name: "Living Room",
-                version: "10.11.2",
-                url: URL(string: "http://tv.local:8096")!
-            ),
-            user: User(id: "user-1", name: userName, serverID: "server-1", primaryImageTag: nil),
+            server: server,
+            user: User(id: userID, name: userName, serverID: server.id, primaryImageTag: nil),
             accessToken: token
         )
+    }
+}
+
+extension ServerInfo {
+    /// A server for tests that don't talk to one.
+    public static func sample(id: String = "server-1", name: String = "Living Room", url: String = "http://tv.local:8096") -> ServerInfo {
+        ServerInfo(id: id, name: name, version: "10.11.2", url: URL(string: url)!)
     }
 }
 

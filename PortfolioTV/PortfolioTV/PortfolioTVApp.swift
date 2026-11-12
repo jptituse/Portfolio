@@ -14,10 +14,19 @@ import SwiftUI
 struct PortfolioTVApp: App {
     /// The app talks to Jellyfin and keeps its session in the Keychain. This is the one place that
     /// choice is made.
-    @State private var sessionManager = SessionManager(
-        store: SessionStore(storage: KeychainStorage(service: Self.keychainService)),
-        authority: JellyfinServerClient(identity: .current())
-    )
+    private let client: JellyfinServerClient
+    @State private var sessionManager: SessionManager
+
+    init() {
+        let client = JellyfinServerClient(identity: .current())
+        self.client = client
+        _sessionManager = State(
+            initialValue: SessionManager(
+                store: MediaServerStore(storage: KeychainStorage(service: Self.keychainService)),
+                authority: client
+            )
+        )
+    }
 
     private static var keychainService: String {
         #if DEBUG
@@ -31,8 +40,10 @@ struct PortfolioTVApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(sessionManager: sessionManager) {
-                MainNavigationView()
+            RootView(sessionManager: sessionManager, client: client) { profiles in
+                ProfilesView(viewModel: profiles)
+            } main: { currentProfile in
+                MainNavigationView(currentProfile: currentProfile)
             }
         }
     }

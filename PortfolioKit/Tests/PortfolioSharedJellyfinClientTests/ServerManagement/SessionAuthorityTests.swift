@@ -1,5 +1,6 @@
 import Foundation
 import PortfolioShared
+import PortfolioSharedTestSupport
 import Testing
 
 @testable import PortfolioSharedJellyfinClient

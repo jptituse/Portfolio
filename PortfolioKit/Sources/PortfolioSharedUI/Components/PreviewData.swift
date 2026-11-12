@@ -1,5 +1,6 @@
 import Foundation
 import PortfolioShared
+import PortfolioSharedJellyfinClient
 
 extension MediaItem {
     /// Sample movies, enough of them to overflow a row so that it scrolls.
@@ -39,5 +40,27 @@ extension UserSession {
         user: User(id: "preview-user", name: "Preview User", serverID: "preview-server", primaryImageTag: nil),
         accessToken: "preview-token"
     )
+}
+
+extension JellyfinServerClient {
+    /// A client for previews.
+    static let preview = JellyfinServerClient(
+        identity: ClientIdentity(clientName: "Portfolio", version: "1.0", deviceName: "Preview", deviceID: "preview")
+    )
+}
+
+extension SessionManager {
+    /// A session manager with no profile open for previews, keeping anything saved apart from the
+    /// app's own.
+    static func preview() -> SessionManager {
+        SessionManager(store: MediaServerStore(storage: KeychainStorage(service: "preview")), authority: JellyfinServerClient.preview)
+    }
+}
+
+extension CurrentProfileViewModel {
+    /// For previews of the main UI. No profile is open, so there's nobody to show.
+    public static func preview() -> CurrentProfileViewModel {
+        CurrentProfileViewModel(client: .preview, sessionManager: .preview())
+    }
 }
 #endif

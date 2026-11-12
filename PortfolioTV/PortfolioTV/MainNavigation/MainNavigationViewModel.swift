@@ -8,7 +8,7 @@ final class MainNavigationViewModel {
     /// Starts hidden, so the app opens with focus on the content rather than on the sidebar.
     var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
-    /// The section chosen in the sidebar.
+    /// The section chosen in the sidebar. Home to start, not the sidebar's first section, Search.
     var selection: MainSection? = .home {
         didSet {
             if let selection { openedSections.insert(selection) }

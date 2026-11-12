@@ -8,7 +8,24 @@ import PortfolioShared
 extension User {
     init?(_ dto: UserDto) {
         guard let id = dto.id, let name = dto.name else { return nil }
-        self.init(id: id, name: name, serverID: dto.serverID, primaryImageTag: dto.primaryImageTag)
+        self.init(
+            id: id,
+            name: name,
+            serverID: dto.serverID,
+            primaryImageTag: dto.primaryImageTag,
+            hasPassword: dto.hasPassword ?? true
+        )
+    }
+}
+
+extension ServerBranding {
+    /// The splash image is only used if the server has it turned on.
+    init(_ dto: BrandingOptionsDto, server: ServerInfo) {
+        let message = dto.loginDisclaimer?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.init(
+            loginMessage: message?.isEmpty == false ? message : nil,
+            splashImageURL: dto.isSplashscreenEnabled == true ? JellyfinServerClient.imageURL("Branding/Splashscreen", on: server) : nil
+        )
     }
 }
 

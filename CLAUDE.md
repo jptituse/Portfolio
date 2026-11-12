@@ -45,19 +45,36 @@ xcodebuild build -scheme PortfolioSharedUI -destination generic/platform=iOS -sk
 
 CI builds the app and runs the app unit tests and package tests on every PR. UI tests aren't in CI yet (#26), so run them locally when changing anything on screen. `-test-iterations` must be at least 2. SourceKit's "No such module" errors are noise; trust `xcodebuild`.
 
+A simulator build with `CODE_SIGNING_ALLOWED=NO` and a signed UI test run share DerivedData, and the UI tests can end up launching the unsigned app, which the simulator refuses ("Security policy issue", or a launch `RequestDenied`). Run `xcodebuild build-for-testing` without that flag to sign it again.
+
+Interrupting a build (killing `xcodebuild`, or a "build database is locked" failure from two builds at once) can leave later builds reporting success without relinking the app, so the simulator runs old code. Check `PortfolioTV.app/PortfolioTV.debug.dylib`'s timestamp in this project's DerivedData folder (there can be more than one), and if it's stale, delete `Build/Intermediates.noindex/PortfolioTV.build/Debug-appletvsimulator` and the built `.app` there. A clean build of everything takes about a minute, so a build running far longer is stuck rather than slow: delete that DerivedData folder's `Build` (keeping `SourcePackages`) and build again.
+
 ## Architecture
 
 `Portfolio.xcworkspace` combines `PortfolioTV/PortfolioTV.xcodeproj` (Xcode 27's `project.xcproj` format) and the local package `PortfolioKit/`. The project uses folder references, so new files under `PortfolioTV/` join their target automatically.
 
 **Modules**
-- `PortfolioShared`: models any media server could produce, plus session and Keychain persistence. No Jellyfin types.
+- `PortfolioShared`: models any media server could produce, plus the saved servers, sessions and Keychain persistence. No Jellyfin types.
 - `PortfolioSharedJellyfinClient`: wraps jellyfin-sdk-swift and owns everything Jellyfin-specific, such as `ServerVersion` and the SDK mapping.
 - `PortfolioSharedPlaybackEngine`: the engine-neutral playback layer and `PlaybackEngine` protocol.
 - `PortfolioSharedAetherPlaybackEngine`: the only module that imports AetherEngine.
-- `PortfolioSharedUI`: views every platform can use.
-- `PortfolioTV` (app target): tvOS-only views, and the composition root. `PortfolioTVApp` builds the `SessionManager` from `KeychainStorage` and `JellyfinServerClient`, then passes `MainNavigationView` into the shared `RootView`.
+- `PortfolioSharedUI`: views every platform can use, and the view models of screens each platform draws its own way (profiles and onboarding), so another platform only adds views.
+- `PortfolioTV` (app target): tvOS-only views, and the composition root. `PortfolioTVApp` makes the one `JellyfinServerClient` and the `SessionManager` (Keychain storage, with the client as its authority), and passes both to the shared `RootView` along with how to make its `ProfilesView` and `MainNavigationView`. `RootViewModel` hands the services to the view models it makes: a fresh `ProfilesViewModel` each time no profile is open, and a `CurrentProfileViewModel` for each fresh main UI, so every profile opens on Home.
 
-The app target defaults to `MainActor` isolation and the package doesn't, so test suites for app code need `@MainActor`. Tests for app code go in `PortfolioTVTests`. Unit tests talk to `MockJellyfinServer`, an in-process fake built on `URLProtocol`.
+The app target defaults to `MainActor` isolation and the package doesn't, so test suites for app code need `@MainActor`. Tests for app code go in `PortfolioTVTests`. Unit tests talk to `MockJellyfinServer`, an in-process fake built on `URLProtocol` that listens on a given scheme, host and port. It and `JellyfinServerClient.mocked`, which sends requests to it, are in `PortfolioSharedTestSupport`.
+
+`PortfolioTV/Info.plist` sits outside the app's folder and holds only what build settings can't express: App Transport Security allows plain HTTP, because most Jellyfin servers on a home network are `http://…:8096`. Xcode merges it with the Info.plist it generates.
+
+**Profiles and onboarding** (`PortfolioTV/Profiles/`, `PortfolioTV/Onboarding/`, view models in `PortfolioSharedUI`).
+- Every launch opens on the profile picker ("Who's watching?"): everyone on every server added to this device, signed in or not, plus "Someone Else". A fresh install opens on the welcome screen instead. No profile is open until one is picked (`SessionState.choosingProfile`). The picker starts with focus on the profile opened last (`SessionManager.lastOpenedProfile`, saved by `MediaServerStore` under its own key), without opening it.
+- The open profile sits at the top of the sidebar (`CurrentProfileView`), its server's name reading "Switch Profile" while focused. Selecting it closes the profile without signing it out (`SessionManager.closeProfile()`), back to the profile picker.
+- "Someone Else" on the profile picker leads to a server picker (`ServerPickerViewModel`): the servers added to this device, with their icons, where someone types their username (anyone the server lists is on the profile picker already), and "Add Server", which starts at the welcome screen.
+- `SessionManager` holds the saved servers (`MediaServer`: the server, the users this device knows, and the access token of each signed-in user), stored in the Keychain by `MediaServerStore`. Opening a profile checks its token with the server first; offline still opens, and a revoked token asks for the password. Signing out keeps the profile on the picker. Settings' "Remove All Servers (Debug)" (`SessionManager.removeAllServers()`) starts over as if freshly installed; deleting the app doesn't, because the Keychain outlives it.
+- Adding a server goes welcome → address and port (without a scheme, HTTPS first, then HTTP on 8096; see `ServerAddress`) → the users the server lists (`/Users/Public`), or straight to signing in with a username when it lists nobody → their password, beside the server's branding (its icon, and its splash image and login message, if set). "Someone Else" covers users the server hides.
+- `ProfilesViewModel.path` holds the pushed steps (`ProfilesViewModel.Step`) with their view models. Navigation values must be `Hashable`, so `Step` compares by view model identity: each step is equal only to itself.
+- User pictures and the splash come through `JellyfinServerClient.imageURL`, as PNG at full size: those endpoints have no size or quality options, and PNG keeps the server from compressing them again. The splash fills the sign-in screen's right half without stretching (`scaledToFill`), blurred and dimmed under the server's icon and name: filling a nearly square half crops and enlarges a 16:9 image.
+- The server's icon is the largest one its web client lists in `/web/manifest.json` (the file names carry a content hash in some versions, so they aren't guessed). A server without its web client gets a stand-in.
+- "Use Your Phone" is a disabled stand-in for Quick Connect (#8).
 
 **Browsing and card transitions** (`PortfolioTV/MediaBrowsing/`). The motion copies the Apple TV app and is plain SwiftUI state animation, with no UIKit or `matchedGeometryEffect`.
 - `ViewState` (`.root`, `.preview`) is inherited through the environment. A browsing view at `.root` shows posters. Entering `.preview` turns the open row's cards into platters. Setting the previewed card's own `viewState` to `.root` expands it to full screen.
@@ -74,8 +91,9 @@ Things that break easily here:
 - Focus staying on a poster for 5 seconds widens it in the row; this deliberately differs from the Apple TV app, and trailers will start there. **The poster row must not be a `LazyHStack`:** it re-estimates off-screen positions from a measured wide poster and the row jumps. A scroll view also can't scroll into width that's still animating in, so the row adds trailing room just before a poster widens. Don't keep that room permanently, or tvOS rests the last poster far from the edge.
 
 **tvOS behavior that shaped the design**
-- The sidebar is a `NavigationSplitView` starting at `.detailOnly`. A `.sidebarAdaptable` `TabView` always opens with focus on its sidebar, and nothing moves it out (`@FocusState`, default focus, placement APIs and UIKit focus requests were all tried).
+- The sidebar is a `NavigationSplitView` starting at `.detailOnly`. Search is its first section, as in the Apple TV app, but the app opens on Home. Its rows are spaced apart with `listRowSpacing`, which tvOS only has from 27. A `.sidebarAdaptable` `TabView` always opens with focus on its sidebar, and nothing moves it out (`@FocusState`, default focus, placement APIs and UIKit focus requests were all tried).
 - Sidebar rows must be `NavigationLink(value:)`: `.tag`ged labels get no focus highlight, and buttons don't change the selection. These rows bring the collapsed "‹ Home" pill, which we're keeping.
+- A button as a row of its own in that sidebar doesn't take focus at all, so the open profile is a button in the section's header. Header content sits closer to the edges than rows, so `CurrentProfileView`'s insets are measured to give its focus highlight the rows' exact edges.
 - Sections stay alive in a `ZStack`, so a hidden one must stay disabled or it can take focus.
 - `navigationTransition(.zoom)` renders as a cross-fade on tvOS.
 

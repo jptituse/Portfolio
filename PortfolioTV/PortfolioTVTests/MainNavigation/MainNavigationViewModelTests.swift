@@ -7,6 +7,8 @@ import Testing
 struct MainNavigationViewModelTests {
     @Test func opensOnHomeWithTheSidebarHidden() {
         let viewModel = MainNavigationViewModel()
+        // Home, though Search comes first in the sidebar.
+        #expect(MainSection.allCases.first != .home)
         #expect(viewModel.selection == .home)
         #expect(viewModel.columnVisibility == .detailOnly)
     }
@@ -23,6 +25,6 @@ struct MainNavigationViewModelTests {
         let viewModel = MainNavigationViewModel()
         viewModel.selection = .search
         viewModel.selection = .home
-        #expect(viewModel.sectionsToKeep == [.home, .search])
+        #expect(viewModel.sectionsToKeep == [.search, .home])
     }
 }

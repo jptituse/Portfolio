@@ -28,6 +28,8 @@ The state machine driving a view goes in `<Purpose>ViewModel.swift`, as a `@Main
 
 Views are purely UI. They don't hold model data, derive state from it or work anything out from it: a view reads what its view model has ready (`viewModel.isDimmed(in: layer)`, `viewModel.heading`) and calls its methods. That covers navigation state too: how deep a detail view is lives in `MediaDetailViewModel`, which also makes the next one. A view still owns what only a view can have, like `@FocusState`, environment values and scroll positions, and passes them to its view model when it needs them.
 
+Services, such as the Jellyfin client and `SessionManager`, reach view models from the app: `PortfolioTVApp` passes them to `RootView`, and each view model hands them to the view models it makes. Views don't read services from the SwiftUI environment.
+
 Constants that drive a view go in a `Metrics` struct inside an extension of that view:
 
 ```swift

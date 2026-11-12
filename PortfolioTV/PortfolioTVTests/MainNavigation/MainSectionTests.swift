@@ -5,7 +5,7 @@ import Testing
 @MainActor
 struct MainSectionTests {
     @Test func listsTheSectionsInSidebarOrder() {
-        #expect(MainSection.allCases == [.home, .libraries, .search, .settings])
+        #expect(MainSection.allCases == [.search, .home, .libraries, .settings])
     }
 
     @Test func everySectionHasAnIcon() {

@@ -4,18 +4,30 @@ import Synchronization
 /// An in-process stand-in for a Jellyfin server, for unit tests.
 ///
 /// It answers the endpoints the client uses with responses shaped like a real server's, checks
-/// credentials against its accounts, tracks the access tokens it issued, and records every request. Requests never leave the process:
-/// `MockJellyfinServer.sessionConfiguration` routes them to the server registered for their host,
-/// and each instance gets its own host, so tests can run in parallel.
-final class MockJellyfinServer: Sendable {
-    struct Account: Sendable {
-        var name: String
-        var password: String
-        var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+/// credentials against its accounts, tracks the access tokens it issued, and records every request.
+/// Requests never leave the process: `MockJellyfinServer.sessionConfiguration` routes each one to the
+/// server listening at its scheme, host and port. Each instance gets its own host unless it's given
+/// a URL, so tests can run in parallel.
+public final class MockJellyfinServer: Sendable {
+    public struct Account: Sendable {
+        public var name: String
+        public var password: String
+        /// Hidden from the server's sign-in screen, so it isn't in `/Users/Public`.
+        public var isHidden: Bool
+        /// The account's picture, if it has one.
+        public var imageTag: String?
+        public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+
+        public init(name: String, password: String, isHidden: Bool = false, imageTag: String? = nil) {
+            self.name = name
+            self.password = password
+            self.isHidden = isHidden
+            self.imageTag = imageTag
+        }
     }
 
     /// How the server responds.
-    enum Behavior: Sendable {
+    public enum Behavior: Sendable {
         /// Behaves like a working Jellyfin server.
         case jellyfin
         /// Nothing is listening: every request fails to connect.
@@ -26,53 +38,72 @@ final class MockJellyfinServer: Sendable {
         case failing(status: Int)
     }
 
-    let url: URL
-    let id: String
-    let name: String
-    let version: String
-    let productName: String
-    let accounts: [Account]
-    let behavior: Behavior
+    /// Where the server listens. Its scheme, host and port are all it answers on.
+    public let url: URL
+    public let id: String
+    public let name: String
+    public let version: String
+    public let productName: String
+    public let accounts: [Account]
+    public let behavior: Behavior
+    /// The branding the admin set: a sign-in message, and whether the splash image is on.
+    public let loginDisclaimer: String?
+    public let splashscreenEnabled: Bool
+    /// Whether the server hosts its web client, whose manifest lists the server's icons.
+    public let hostsWebClient: Bool
 
     private let recorded = Mutex<[URLRequest]>([])
     /// Access tokens the server currently accepts, and whose they are.
     private let sessions = Mutex<[String: Account]>([:])
 
-    init(
+    public init(
+        url: URL = MockJellyfinServer.uniqueURL(),
         name: String = "Living Room",
         version: String = "10.11.2",
         productName: String = "Jellyfin Server",
         accounts: [Account] = [Account(name: "alex", password: "hunter2")],
+        loginDisclaimer: String? = nil,
+        splashscreenEnabled: Bool = false,
+        hostsWebClient: Bool = true,
         behavior: Behavior = .jellyfin
     ) {
-        self.url = URL(string: "https://mock-\(UUID().uuidString.lowercased()).jellyfin.test")!
+        self.url = url
         self.id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         self.name = name
         self.version = version
         self.productName = productName
         self.accounts = accounts
+        self.loginDisclaimer = loginDisclaimer
+        self.splashscreenEnabled = splashscreenEnabled
+        self.hostsWebClient = hostsWebClient
         self.behavior = behavior
-        Self.registry.withLock { $0[url.host!] = WeakServer(server: self) }
+        Self.registry.withLock { $0[Self.origin(of: url)] = WeakServer(server: self) }
     }
 
     deinit {
-        let host = url.host!
-        Self.registry.withLock { _ = $0.removeValue(forKey: host) }
+        let origin = Self.origin(of: url)
+        Self.registry.withLock { _ = $0.removeValue(forKey: origin) }
+    }
+
+    /// A URL on a host no other mock uses, HTTPS unless told otherwise.
+    public static func uniqueURL(scheme: String = "https", port: Int? = nil) -> URL {
+        let host = "mock-\(UUID().uuidString.lowercased()).jellyfin.test"
+        return URL(string: "\(scheme)://\(host)\(port.map { ":\($0)" } ?? "")")!
     }
 
     /// Every request the server received, in order.
-    var requests: [URLRequest] { recorded.withLock { $0 } }
+    public var requests: [URLRequest] { recorded.withLock { $0 } }
 
     /// Access tokens the server currently accepts.
-    var activeTokens: Set<String> { sessions.withLock { Set($0.keys) } }
+    public var activeTokens: Set<String> { sessions.withLock { Set($0.keys) } }
 
     /// Revokes every session, like removing the device in the Jellyfin dashboard.
-    func revokeAllSessions() {
+    public func revokeAllSessions() {
         sessions.withLock { $0.removeAll() }
     }
 
     /// Hand this to the client under test so its requests reach mock servers.
-    static var sessionConfiguration: URLSessionConfiguration {
+    public static var sessionConfiguration: URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return configuration
@@ -103,6 +134,21 @@ final class MockJellyfinServer: Sendable {
         switch (request.httpMethod ?? "GET", request.url?.path ?? "") {
         case ("GET", "/System/Info/Public"):
             return Response(status: 200, json: publicSystemInfo)
+        case ("GET", "/Users/Public"):
+            return Response(status: 200, json: accounts.filter { !$0.isHidden }.map(userJSON))
+        case ("GET", "/web/manifest.json") where hostsWebClient:
+            // As Jellyfin's web client lists them, smallest first.
+            return Response(status: 200, json: ["icons": [
+                ["src": "favicons/touchicon72.png", "sizes": "72x72", "type": "image/png"],
+                ["src": "favicons/touchicon512.png", "sizes": "512x512", "type": "image/png"],
+                ["src": "favicons/touchicon144.png", "sizes": "144x144", "type": "image/png"],
+            ]])
+        case ("GET", "/Branding/Configuration"):
+            return Response(status: 200, json: [
+                "LoginDisclaimer": loginDisclaimer ?? "",
+                "CustomCss": "",
+                "SplashscreenEnabled": splashscreenEnabled,
+            ])
         case ("POST", "/Users/AuthenticateByName"):
             return authenticate(request)
         case ("GET", "/Users/Me"):
@@ -149,13 +195,15 @@ final class MockJellyfinServer: Sendable {
     }
 
     private func userJSON(_ account: Account) -> [String: Any] {
-        [
+        var json: [String: Any] = [
             "Name": account.name,
             "ServerId": id,
             "Id": account.id,
             "HasPassword": !account.password.isEmpty,
             "HasConfiguredPassword": !account.password.isEmpty,
         ]
+        json["PrimaryImageTag"] = account.imageTag
+        return json
     }
 
     /// The account behind the request's access token, if the server still accepts it.
@@ -183,19 +231,25 @@ final class MockJellyfinServer: Sendable {
         weak var server: MockJellyfinServer?
     }
 
+    /// Servers by the scheme, host and port they listen on.
     fileprivate static let registry = Mutex<[String: WeakServer]>([:])
+
+    fileprivate static func origin(of url: URL) -> String {
+        "\(url.scheme ?? "")://\(url.host ?? ""):\(url.port.map(String.init) ?? "")"
+    }
 }
 
-/// Delivers each request to the `MockJellyfinServer` registered for its host.
+/// Delivers each request to the `MockJellyfinServer` listening at its scheme, host and port. Nothing
+/// listening there fails like a closed port.
 private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
 
     override func startLoading() {
-        guard let host = request.url?.host,
-            let server = MockJellyfinServer.registry.withLock({ $0[host]?.server }) else {
-            client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
+        guard let url = request.url,
+            let server = MockJellyfinServer.registry.withLock({ $0[MockJellyfinServer.origin(of: url)]?.server }) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
             return
         }
         do {
