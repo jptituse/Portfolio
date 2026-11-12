@@ -27,6 +27,18 @@ enum RequestPhase {
 }
 
 extension JellyfinError {
+    /// How much a failure says about an address, for picking which one to report when several URLs
+    /// were tried. Being unreachable says the least.
+    var specificity: Int {
+        switch self {
+        case .unreachable: 0
+        case .notJellyfinServer: 1
+        case .serverError: 2
+        case .unauthorized: 3
+        case .unsupportedVersion: 4
+        }
+    }
+
     /// Maps an error thrown by the SDK, `Get` or `URLSession` to a `JellyfinError`, passing
     /// cancellation through as `CancellationError`.
     static func classify(_ error: any Error, during phase: RequestPhase) -> any Error {

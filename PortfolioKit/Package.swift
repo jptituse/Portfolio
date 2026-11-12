@@ -69,7 +69,7 @@ let package = Package(
         // Test doubles shared by the test targets. Never linked into the app.
         .target(
             name: "PortfolioSharedTestSupport",
-            dependencies: ["PortfolioShared"],
+            dependencies: ["PortfolioShared", "PortfolioSharedJellyfinClient"],
             path: "Tests/PortfolioSharedTestSupport"
         ),
 
@@ -86,7 +86,10 @@ let package = Package(
         ),
         .testTarget(name: "PortfolioSharedPlaybackEngineTests", dependencies: ["PortfolioSharedPlaybackEngine"]),
         .testTarget(name: "PortfolioSharedAetherPlaybackEngineTests", dependencies: ["PortfolioSharedAetherPlaybackEngine"]),
-        .testTarget(name: "PortfolioSharedUITests", dependencies: ["PortfolioSharedUI", "PortfolioSharedTestSupport"]),
+        .testTarget(
+            name: "PortfolioSharedUITests",
+            dependencies: ["PortfolioSharedUI", "PortfolioSharedJellyfinClient", "PortfolioSharedTestSupport"]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

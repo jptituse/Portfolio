@@ -21,15 +21,136 @@ final class AppNavigationUITests: XCTestCase {
     }
 
     @MainActor
-    func testSigningInAndOutSwitchesBetweenOnboardingAndTheApp() throws {
+    func testSigningOutReturnsToTheProfilePicker() throws {
         signInWithSampleSession()
 
+        signOut()
+
+        XCTAssertTrue(sampleProfile.waitForExistence(timeout: 10), "The profile should stay on the picker")
+        XCTAssertTrue(app.buttons["Someone Else"].exists)
+        XCTAssertFalse(poster("Sample Movie 1").exists)
+    }
+
+    @MainActor
+    func testRemovingAllServersStartsOver() throws {
+        signInWithSampleSession()
         goToTab("Settings")
-        focus(app.buttons["Sign Out (Debug)"], moving: .right, orElse: .up)
+        focus(app.buttons["Remove All Servers (Debug)"], moving: .right, orElse: .up)
         press(.select)
 
-        XCTAssertTrue(app.buttons["Continue with a Sample Session (Debug)"].waitForExistence(timeout: 10))
-        XCTAssertFalse(poster("Sample Movie 1").exists)
+        // The confirmation's button shows up twice, nested in itself.
+        let confirm = app.sheets.buttons["Remove All Servers"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Removing should ask first")
+        focus(confirm, moving: .up)
+        press(.select)
+
+        XCTAssertTrue(app.buttons["Sign In on This TV"].waitForExistence(timeout: 10), "The app should start over")
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["Sign In on This TV"].waitForExistence(timeout: 10), "Nothing should come back at a relaunch")
+        XCTAssertFalse(sampleProfile.exists)
+    }
+
+    @MainActor
+    func testAProfileSignedInOnThisDeviceOpensAfterARelaunch() throws {
+        signInWithSampleSession()
+
+        app.terminate()
+        app.launch()
+
+        XCTAssertTrue(sampleProfile.waitForExistence(timeout: 10), "A relaunch should open on the profile picker")
+        XCTAssertTrue(waitForFocus(sampleProfile))
+        press(.select)
+        XCTAssertTrue(poster("Sample Movie 1").waitForExistence(timeout: 10), "The profile didn't open")
+    }
+
+    @MainActor
+    func testTheProfileInTheSidebarSwitchesProfiles() throws {
+        signInWithSampleSession()
+
+        for _ in 0..<3 where !sidebarHasFocus() {
+            press(.menu)
+        }
+        XCTAssertTrue(sidebarHasFocus(), "Couldn't bring focus to the sidebar")
+        let profile = app.buttons["sidebar.profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 5), "The sidebar should show the open profile")
+        focus(profile, moving: .up)
+        press(.select)
+
+        XCTAssertTrue(sampleProfile.waitForExistence(timeout: 10), "Selecting the profile should open the profile picker")
+        XCTAssertTrue(waitForFocus(sampleProfile))
+        // It's still signed in, so it opens straight away, on a fresh Home.
+        press(.select)
+        XCTAssertTrue(waitForFocus(poster("Sample Movie 1")), "The profile didn't open again on Home")
+    }
+
+    @MainActor
+    func testASignedOutProfileAsksForItsPassword() throws {
+        signInWithSampleSession()
+        signOut()
+
+        XCTAssertTrue(sampleProfile.waitForExistence(timeout: 10))
+        focus(sampleProfile, moving: .left)
+        press(.select)
+
+        XCTAssertTrue(app.secureTextFields["onboarding.password"].waitForExistence(timeout: 10), "No password field")
+        XCTAssertFalse(app.textFields["onboarding.username"].exists, "The username is known already")
+        XCTAssertTrue(app.staticTexts["Preview User"].exists)
+    }
+
+    @MainActor
+    func testSomeoneElsePicksAnAddedServerOrAddsAnother() throws {
+        signInWithSampleSession()
+        signOut()
+
+        let someoneElse = app.buttons["Someone Else"]
+        XCTAssertTrue(someoneElse.waitForExistence(timeout: 10))
+        focus(someoneElse, moving: .right)
+        press(.select)
+
+        let sampleServer = app.buttons["Preview Server"]
+        let addServer = app.buttons["Add Server"]
+        XCTAssertTrue(sampleServer.waitForExistence(timeout: 10), "The added server should be on the server picker")
+        XCTAssertTrue(addServer.exists)
+
+        // Adding another server starts at the welcome screen; Menu goes back.
+        focus(addServer, moving: .right)
+        press(.select)
+        XCTAssertTrue(app.buttons["Sign In on This TV"].waitForExistence(timeout: 10))
+        press(.menu)
+        XCTAssertTrue(sampleServer.waitForExistence(timeout: 10), "Menu should go back to the server picker")
+
+        // On an added server, someone else types their username.
+        focus(sampleServer, moving: .left)
+        press(.select)
+        XCTAssertTrue(app.textFields["onboarding.username"].waitForExistence(timeout: 10), "No username field")
+
+        press(.menu)
+        press(.menu)
+        XCTAssertTrue(sampleProfile.waitForExistence(timeout: 10), "Menu should go back to the profile picker")
+    }
+
+    @MainActor
+    func testAnAddressWhereNothingAnswersSaysSo() throws {
+        let signInHere = app.buttons["Sign In on This TV"]
+        XCTAssertTrue(signInHere.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(signInHere), "A fresh install should open on signing in on this TV")
+        press(.select)
+
+        let address = app.textFields["onboarding.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(address), "The server step should open on the address field")
+
+        // Nothing listens on port 9 of this machine.
+        press(.select)
+        app.typeText("127.0.0.1:9")
+        press(.menu)
+        focus(app.buttons["onboarding.continue"], moving: .down)
+        press(.select)
+
+        let error = app.staticTexts["onboarding.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 30), "No error appeared. Hierarchy:\n\(app.debugDescription)")
+        XCTAssertTrue(error.label.hasPrefix("Couldn't reach a server"), "Wrong error: \(error.label)")
     }
 
     @MainActor
@@ -265,6 +386,18 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(poster("Sample Movie 1").waitForExistence(timeout: 10), "The signed-in app didn't appear")
     }
 
+    /// The sample session's tile on the profile picker.
+    private var sampleProfile: XCUIElement {
+        app.buttons["Preview User"]
+    }
+
+    /// Signs out with the debug button in Settings, back to the profile picker.
+    private func signOut() {
+        goToTab("Settings")
+        focus(app.buttons["Sign Out (Debug)"], moving: .right, orElse: .up)
+        press(.select)
+    }
+
     private func focusFirstPosterOnHome() {
         signInWithSampleSession()
         goToTab("Home")
@@ -297,7 +430,8 @@ final class AppNavigationUITests: XCTestCase {
 
     /// From a tab's browsing view, selects the first poster and checks it opens as a platter.
     private func openCarousel() {
-        focus(poster("Sample Movie 1"), moving: .right, orElse: .down)
+        // Down from a header's buttons can land on a later poster.
+        focus(poster("Sample Movie 1"), moving: .right, orElse: .down, .left)
         press(.select)
         XCTAssertTrue(platter("Sample Movie 1").waitForExistence(timeout: 5), "The poster didn't open")
         XCTAssertTrue(waitForFocus(platter("Sample Movie 1")), "The preview didn't start on the chosen item")
@@ -315,7 +449,7 @@ final class AppNavigationUITests: XCTestCase {
         app.cells.containing(NSPredicate(format: "label == %@", title)).firstMatch
     }
 
-    private let sidebarSections = ["Home", "Libraries", "Search", "Settings"]
+    private let sidebarSections = ["Search", "Home", "Libraries", "Settings"]
 
     /// Text only that tab's view shows, to confirm which tab is showing.
     private let tabMessages = [
@@ -341,13 +475,13 @@ final class AppNavigationUITests: XCTestCase {
         sidebarSections.contains { sidebarTab($0).hasFocus }
     }
 
-    /// Presses `direction` (then `fallback`, if given) until `element` has focus.
-    private func focus(_ element: XCUIElement, moving direction: XCUIRemote.Button, orElse fallback: XCUIRemote.Button? = nil) {
+    /// Presses `direction` (then each of `fallbacks` in turn) until `element` has focus.
+    private func focus(_ element: XCUIElement, moving direction: XCUIRemote.Button, orElse fallbacks: XCUIRemote.Button...) {
         guard element.waitForExistence(timeout: 5) else {
             XCTFail("\(element) doesn't exist. Hierarchy:\n\(app.debugDescription)")
             return
         }
-        for button in [direction, fallback].compactMap({ $0 }) {
+        for button in [direction] + fallbacks {
             for _ in 0..<6 {
                 if element.hasFocus { return }
                 press(button)

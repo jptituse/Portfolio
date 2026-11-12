@@ -13,48 +13,55 @@ struct SessionLifecycleTests {
     let keychain = InMemorySecureStorage()
     let client = JellyfinServerClient.mocked
 
-    func launchApp() async -> SessionManager {
-        let manager = SessionManager(store: SessionStore(storage: keychain), authority: client)
-        await manager.restore()
+    func launchApp() -> SessionManager {
+        let manager = SessionManager(store: MediaServerStore(storage: keychain), authority: client)
+        manager.restore()
         return manager
     }
 
-    func signIn(with manager: SessionManager) async throws {
+    func signIn(with manager: SessionManager) async throws -> UserSession {
         let server = try await client.validateServer(at: mock.url)
-        try manager.signIn(await client.signIn(to: server, username: "alex", password: "hunter2"))
+        let session = try await client.signIn(to: server, username: "alex", password: "hunter2")
+        try manager.signIn(session)
+        return session
     }
 
-    @Test func aFreshInstallStartsSignedOut() async {
-        #expect(await launchApp().state == .signedOut)
+    @Test func aFreshInstallStartsWithNoServers() {
+        let manager = launchApp()
+        #expect(manager.state == .choosingProfile)
+        #expect(manager.servers.isEmpty)
     }
 
-    @Test func signingInKeepsYouSignedInAcrossRelaunches() async throws {
-        try await signIn(with: launchApp())
+    @Test func aSignedInProfileOpensAfterARelaunch() async throws {
+        let session = try await signIn(with: launchApp())
 
-        let relaunched = await launchApp()
+        let relaunched = launchApp()
+        #expect(relaunched.state == .choosingProfile)
+        #expect(await relaunched.open(session.user.id, on: session.server.id))
 
         #expect(relaunched.state.session?.user.name == "alex")
         #expect(relaunched.state.session?.server.url == mock.url)
     }
 
-    @Test func revokingTheDeviceSignsYouOutAtTheNextLaunch() async throws {
-        try await signIn(with: launchApp())
+    @Test func revokingTheDeviceAsksForThePasswordAgain() async throws {
+        let session = try await signIn(with: launchApp())
 
         mock.revokeAllSessions()  // Removing the device in the Jellyfin dashboard.
-        let relaunched = await launchApp()
+        let relaunched = launchApp()
 
-        #expect(relaunched.state == .signedOut)
-        #expect(keychain.contents.isEmpty)
+        #expect(await relaunched.open(session.user.id, on: session.server.id) == false)
+        #expect(relaunched.state == .choosingProfile)
+        #expect(relaunched.servers.first?.isSignedIn(session.user.id) == false)
     }
 
     @Test func signingOutEndsTheSessionOnTheServer() async throws {
-        let manager = await launchApp()
-        try await signIn(with: manager)
+        let manager = launchApp()
+        let session = try await signIn(with: manager)
 
         await manager.signOut()
 
-        #expect(manager.state == .signedOut)
+        #expect(manager.state == .choosingProfile)
         #expect(mock.activeTokens.isEmpty)
-        #expect(await launchApp().state == .signedOut)
+        #expect(launchApp().servers.first?.isSignedIn(session.user.id) == false)
     }
 }

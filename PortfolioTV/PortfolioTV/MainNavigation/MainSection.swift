@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// The top-level sections, in sidebar order.
+/// The top-level sections, in sidebar order. Search comes first, as in the Apple TV app, but the app
+/// opens on Home.
 enum MainSection: Hashable, CaseIterable {
+    case search
     case home
     case libraries
-    case search
     case settings
 
     var title: LocalizedStringKey {
