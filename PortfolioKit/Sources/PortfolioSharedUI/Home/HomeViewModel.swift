@@ -67,19 +67,8 @@ public final class HomeViewModel {
             canRetry = false
         } catch {
             // Rows already showing stay, with why they couldn't be brought up to date.
-            message = Self.message(for: error, server: session.server.name)
+            message = LoadingFailure.message(for: error, server: session.server.name, activity: "loading what's new")
             canRetry = true
-        }
-    }
-
-    private static func message(for error: any Error, server: String) -> String {
-        switch error as? JellyfinError {
-        case .unreachable:
-            "Couldn't reach \(server). Check that it's still running, and try again."
-        case .unauthorized:
-            "\(server) no longer accepts this sign-in. Switch profiles to sign in again."
-        default:
-            "\(server) ran into a problem loading what's new. Try again in a moment."
         }
     }
 

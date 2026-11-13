@@ -20,6 +20,8 @@ public final class RemoteImageViewModel {
     public private(set) var layers: [Layer] = []
     /// Whether a first image is fading in over the placeholder.
     public private(set) var isFadingInOverPlaceholder = false
+    /// Whether an image is on its way, so the placeholder can show that it's loading.
+    public private(set) var isLoading = false
 
     @ObservationIgnored private let pipeline: ImagePipeline
     /// The latest request, while it loads.
@@ -59,18 +61,24 @@ public final class RemoteImageViewModel {
         loading = nil
         requestedURL = url
         guard let url else {
+            setLoading(false)
             display(nil, url: nil, fades: false, crossFade: crossFade)
             return
         }
         if let cached = pipeline.cachedImage(for: url) {
+            setLoading(false)
             // A view without an image yet already draws one in memory, so it doesn't fade in.
             display(cached, url: url, fades: !layers.isEmpty, crossFade: crossFade)
             return
         }
+        setLoading(true)
         loading = Task {
             defer {
                 // A cancelled request has been replaced already.
-                if !Task.isCancelled { loading = nil }
+                if !Task.isCancelled {
+                    loading = nil
+                    setLoading(false)
+                }
             }
             guard let loaded = try? await pipeline.image(for: url), !Task.isCancelled else { return }
             display(loaded, url: url, fades: true, crossFade: crossFade)
@@ -81,6 +89,10 @@ public final class RemoteImageViewModel {
     public func show(_ url: URL?, crossFade: Duration = defaultCrossFade) async {
         request(url, crossFade: crossFade)
         await loading?.value
+    }
+
+    private func setLoading(_ isLoading: Bool) {
+        if self.isLoading != isLoading { self.isLoading = isLoading }
     }
 
     private func display(_ newImage: CGImage?, url: URL?, fades: Bool, crossFade: Duration) {

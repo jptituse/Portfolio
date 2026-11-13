@@ -36,6 +36,9 @@ public final class MockJellyfinServer: Sendable {
         public var backdropTags: [String]
         /// The shape of its primary image, width over height.
         public var primaryImageAspectRatio: Double?
+        /// The library it's in, if any.
+        public var libraryID: String?
+        public var genres: [String]
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -43,13 +46,30 @@ public final class MockJellyfinServer: Sendable {
             type: String = "Movie",
             imageTags: [String: String] = [:],
             backdropTags: [String] = [],
-            primaryImageAspectRatio: Double? = nil
+            primaryImageAspectRatio: Double? = nil,
+            libraryID: String? = nil,
+            genres: [String] = []
         ) {
             self.name = name
             self.type = type
             self.imageTags = imageTags
             self.backdropTags = backdropTags
             self.primaryImageAspectRatio = primaryImageAspectRatio
+            self.libraryID = libraryID
+            self.genres = genres
+        }
+    }
+
+    /// One of the user's libraries.
+    public struct Library: Sendable {
+        public var name: String
+        /// The Jellyfin collection type, such as `movies` or `tvshows`, or nil for a mixed library.
+        public var collectionType: String?
+        public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+
+        public init(name: String, collectionType: String?) {
+            self.name = name
+            self.collectionType = collectionType
         }
     }
 
@@ -78,6 +98,8 @@ public final class MockJellyfinServer: Sendable {
     public let splashscreenEnabled: Bool
     /// Whether the server hosts its web client, whose manifest lists the server's icons.
     public let hostsWebClient: Bool
+    /// The user's libraries, in order.
+    public let libraries: [Library]
     /// The items in its libraries, most recently added first. A test can change them, as if someone
     /// added something.
     public var items: [Item] {
@@ -101,6 +123,7 @@ public final class MockJellyfinServer: Sendable {
         loginDisclaimer: String? = nil,
         splashscreenEnabled: Bool = false,
         hostsWebClient: Bool = true,
+        libraries: [Library] = [],
         items: [Item] = [],
         imageData: Data = MockJellyfinServer.samplePNG,
         behavior: Behavior = .jellyfin
@@ -114,6 +137,7 @@ public final class MockJellyfinServer: Sendable {
         self.loginDisclaimer = loginDisclaimer
         self.splashscreenEnabled = splashscreenEnabled
         self.hostsWebClient = hostsWebClient
+        self.libraries = libraries
         itemStore = Mutex(items)
         self.imageData = imageData
         self.behavior = behavior
@@ -204,12 +228,62 @@ public final class MockJellyfinServer: Sendable {
             let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems
             let limit = query?.first { $0.name == "limit" }?.value.flatMap(Int.init)
             return Response(status: 200, json: items.prefix(limit ?? items.count).map(itemJSON))
+        case ("GET", "/UserViews"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            return Response(status: 200, json: ["Items": libraries.map(libraryJSON), "TotalRecordCount": libraries.count])
+        case ("GET", "/Items"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            return Response(status: 200, json: itemsResponse(for: request))
+        case ("GET", "/Genres"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let names = Set(matchingItems(for: request).flatMap(\.genres)).sorted()
+            return Response(status: 200, json: ["Items": names.map { ["Id": Self.genreID($0), "Name": $0] }, "TotalRecordCount": names.count])
         case ("GET", let path) where path.hasPrefix("/Items/"):
             // Images need no sign-in, as on a real server.
             return hasImage(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
         default:
             return Response(status: 404)
         }
+    }
+
+    private func libraryJSON(_ library: Library) -> [String: Any] {
+        var json: [String: Any] = ["Id": library.id, "Name": library.name, "Type": "CollectionFolder", "ServerId": id]
+        json["CollectionType"] = library.collectionType
+        return json
+    }
+
+    /// A genre's ID: its name, so tests can find it.
+    public static func genreID(_ name: String) -> String {
+        "genre-\(name)"
+    }
+
+    /// The items a `/Items` or `/Genres` request asks about: in its library (`ParentId`), of its types
+    /// (`IncludeItemTypes`), in its genre (`GenreIds`).
+    private func matchingItems(for request: URLRequest) -> [Item] {
+        let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+        let parent = query.first { $0.name == "parentId" }?.value
+        let types = query.filter { $0.name == "includeItemTypes" }.compactMap(\.value)
+        let genres = query.filter { $0.name == "genreIds" }.compactMap(\.value)
+        return items.filter { item in
+            (parent == nil || item.libraryID == parent)
+                && (types.isEmpty || types.contains(item.type))
+                && (genres.isEmpty || item.genres.contains { genres.contains(Self.genreID($0)) })
+        }
+    }
+
+    /// A page of `/Items`: sorted by name, or with `DateCreated` (or `DateLastContentAdded`) first, in
+    /// the order items were added, most recent first.
+    private func itemsResponse(for request: URLRequest) -> [String: Any] {
+        let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+        var matching = matchingItems(for: request)
+        let sortBy = query.first { $0.name == "sortBy" }?.value
+        if sortBy == "SortName" {
+            matching.sort { $0.name < $1.name }
+        }
+        let start = query.first { $0.name == "startIndex" }?.value.flatMap(Int.init) ?? 0
+        let limit = query.first { $0.name == "limit" }?.value.flatMap(Int.init) ?? matching.count
+        let page = matching.dropFirst(start).prefix(limit)
+        return ["Items": page.map(itemJSON), "TotalRecordCount": matching.count, "StartIndex": start]
     }
 
     private func itemJSON(_ item: Item) -> [String: Any] {
@@ -219,6 +293,7 @@ public final class MockJellyfinServer: Sendable {
             "Type": item.type,
             "ServerId": id,
             "ImageTags": item.imageTags,
+            "Genres": item.genres,
             "BackdropImageTags": item.backdropTags,
         ]
         json["PrimaryImageAspectRatio"] = item.primaryImageAspectRatio

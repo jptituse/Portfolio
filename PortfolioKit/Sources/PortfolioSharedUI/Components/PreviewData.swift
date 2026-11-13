@@ -64,6 +64,16 @@ extension CurrentProfileViewModel {
     }
 }
 
+extension LibrariesViewModel {
+    /// For previews and tests of the main navigation: `libraries`, arranged as the server's would be.
+    /// They aren't loaded from anywhere.
+    public static func preview(libraries: [Library] = []) -> LibrariesViewModel {
+        let viewModel = LibrariesViewModel(client: .preview, session: nil)
+        viewModel.show(libraries)
+        return viewModel
+    }
+}
+
 extension HomeViewModel {
     /// For previews of Home. Its server doesn't exist, so it shows that it couldn't be reached.
     public static func preview() -> HomeViewModel {

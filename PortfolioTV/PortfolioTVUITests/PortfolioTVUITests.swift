@@ -179,12 +179,12 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testTheSidebarOpensOnTheCurrentSection() throws {
         signInWithSampleSession()
-        goToTab("Libraries")
+        goToTab("Search")
         XCTAssertTrue(waitForFocus(poster("Sample Movie 1")), "Choosing a section didn't move focus to it")
 
         // Left, from the first poster.
         press(.left)
-        XCTAssertTrue(waitForFocus(sidebarTab("Libraries")), "Left didn't land on the current section")
+        XCTAssertTrue(waitForFocus(sidebarTab("Search")), "Left didn't land on the current section")
 
         // And Menu, from further along the row.
         press(.right)
@@ -192,12 +192,12 @@ final class AppNavigationUITests: XCTestCase {
         press(.right)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 2")))
         press(.menu)
-        XCTAssertTrue(waitForFocus(sidebarTab("Libraries")), "Menu didn't land on the current section")
+        XCTAssertTrue(waitForFocus(sidebarTab("Search")), "Menu didn't land on the current section")
     }
 
     @MainActor
     func testAPosterWidensWhenFocusStaysOnItAndTheRowClosesBackOntoIt() throws {
-        focusFirstPosterInLibraries()
+        focusFirstPosterInSearch()
         press(.right, times: 2)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 3")))
         let normalWidth = poster("Sample Movie 3").frame.width
@@ -218,7 +218,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testAWidePosterNearTheEdgeOfTheScreenStaysInView() throws {
-        focusFirstPosterInLibraries()
+        focusFirstPosterInSearch()
         press(.right, times: 5)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 6")))
         let normalWidth = poster("Sample Movie 6").frame.width
@@ -230,7 +230,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testMovingPastAWidePosterAtTheEdgeAndBackKeepsTheRowInPlace() throws {
-        focusFirstPosterInLibraries()
+        focusFirstPosterInSearch()
         press(.right, times: 5)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 6")))
         let normalWidth = poster("Sample Movie 6").frame.width
@@ -253,7 +253,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testTheLastPosterOfARowStaysInViewWhenItWidens() throws {
-        focusFirstPosterInLibraries()
+        focusFirstPosterInSearch()
         press(.right, times: 19)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 20")))
         let normalWidth = poster("Sample Movie 20").frame.width
@@ -278,7 +278,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testClosingLandsOnAWidePosterEvenIfFocusDidNotStayOnIt() throws {
-        focusFirstPosterInLibraries()
+        focusFirstPosterInSearch()
         let normalWidth = poster("Sample Movie 1").frame.width
 
         // Opened straight away, then moved to the next platter.
@@ -296,7 +296,7 @@ final class AppNavigationUITests: XCTestCase {
     func testEveryTabGoesFromPosterToPreviewToFullDetailAndBack() throws {
         signInWithSampleSession()
 
-        for tab in ["Libraries", "Search", "Settings"] {
+        for tab in ["Search", "Settings"] {
             goToTab(tab)
             openCarousel()
 
@@ -329,7 +329,7 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testThePreviewOpensOnThePosterYouChoseAndClosesBackOntoIt() throws {
         signInWithSampleSession()
-        goToTab("Libraries")
+        goToTab("Search")
 
         focus(poster("Sample Movie 3"), moving: .right)
         press(.select)
@@ -344,7 +344,7 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testAScrolledRowOpensAndClosesOnTheChosenPoster() throws {
         signInWithSampleSession()
-        goToTab("Libraries")
+        goToTab("Search")
 
         // Move far enough along that the row has scrolled past its first posters.
         focus(poster("Sample Movie 1"), moving: .right, orElse: .down)
@@ -370,7 +370,7 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testSelectExpandsAPlatterAndLeftBringsInTheSidebar() throws {
         signInWithSampleSession()
-        goToTab("Libraries")
+        goToTab("Search")
         openCarousel()
 
         // Left from the first platter brings in the sidebar; Right goes back to the platter.
@@ -419,9 +419,9 @@ final class AppNavigationUITests: XCTestCase {
         press(.select)
     }
 
-    private func focusFirstPosterInLibraries() {
+    private func focusFirstPosterInSearch() {
         signInWithSampleSession()
-        goToTab("Libraries")
+        goToTab("Search")
         focus(poster("Sample Movie 1"), moving: .right, orElse: .down)
     }
 
@@ -470,12 +470,11 @@ final class AppNavigationUITests: XCTestCase {
         app.cells.containing(NSPredicate(format: "label == %@", title)).firstMatch
     }
 
-    private let sidebarSections = ["Search", "Home", "Libraries", "Settings"]
+    private let sidebarSections = ["Search", "Home", "Settings"]
 
     /// Text only that tab's view shows, to confirm which tab is showing.
     private let tabMessages = [
         "Home": "What's new in your libraries.",
-        "Libraries": "Your movie, show and other libraries will appear here.",
         "Search": "Search for movies, shows, episodes and people.",
         "Settings": "Your server, account and playback settings will appear here.",
     ]

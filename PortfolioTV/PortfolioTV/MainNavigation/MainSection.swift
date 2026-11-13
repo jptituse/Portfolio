@@ -1,27 +1,28 @@
-import SwiftUI
+import Foundation
+import PortfolioShared
+import PortfolioSharedUI
 
-/// The top-level sections, in sidebar order. Search comes first, as in the Apple TV app, but the app
-/// opens on Home.
-enum MainSection: Hashable, CaseIterable {
+/// A top-level section of the app: Search, Home, a library, or Settings.
+enum MainSection: Hashable {
     case search
     case home
-    case libraries
+    case library(LibraryScope)
     case settings
 
-    var title: LocalizedStringKey {
+    var title: String {
         switch self {
-        case .home: "Home"
-        case .libraries: "Libraries"
-        case .search: "Search"
-        case .settings: "Settings"
+        case .search: String(localized: "Search")
+        case .home: String(localized: "Home")
+        case .library(let scope): scope.title
+        case .settings: String(localized: "Settings")
         }
     }
 
     var systemImage: String {
         switch self {
-        case .home: "house"
-        case .libraries: "rectangle.stack"
         case .search: "magnifyingglass"
+        case .home: "house"
+        case .library(let scope): scope.systemImage
         case .settings: "gearshape"
         }
     }

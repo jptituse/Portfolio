@@ -44,7 +44,7 @@ struct RelatedMediaGroupCarouselView: View {
             }
 
             if isExpanded {
-                MediaDetailActionsView(item: viewModel.openItem, focus: focus)
+                MediaDetailActionsView(item: viewModel.openItem, focus: focus, focusValue: .detail(viewModel.openItem.id))
                     .frame(width: globalFrame.width, height: globalFrame.height, alignment: .bottomLeading)
                     .transition(.opacity)
                     .zIndex(2)

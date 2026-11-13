@@ -54,7 +54,7 @@ struct MediaBrowsingView<Header: View>: View {
                 }
             }
             .ignoresSafeArea()
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            .onGeometryChange(for: CGSize.self, of: \.screenSize) { size in
                 viewModel.setScreen(scale: displayScale, size: size)
             }
         }

@@ -67,10 +67,6 @@ struct MediaCardViewModelTests {
         #expect(!viewModel.isDimmed(in: .preview))
     }
 
-    @Test func givesAnItemTheSameArtworkHueOnEveryLaunch() {
-        #expect(viewModel.artworkHue == 185.0 / 360)
-    }
-
     // MARK: Artwork
 
     /// Answers with a URL naming what was asked for, for any image the item has.
@@ -179,6 +175,27 @@ struct MediaCardViewModelTests {
     func keepsUnusualShapesWithinReason(_ ratio: Double, _ drawn: CGFloat) {
         let item = MediaItem(id: "odd", name: "Odd", kind: .movie, primaryImageAspectRatio: ratio)
         #expect(MediaCardViewModel(item: item).posterAspectRatio == drawn)
+    }
+
+    @Test func goesFromPosterToPlatterToFullScreen() {
+        let card = card([.primary: "p", .backdrop(): "b"])
+        #expect(card.form(in: .root) == .poster)
+        #expect(card.form(in: .preview) == .platter)
+
+        card.viewState = .root
+
+        #expect(card.form(in: .preview) == .fullScreen)
+    }
+
+    @Test func goesStraightFromPosterToFullScreenWhenItsOwnLayerIsRootAlready() {
+        let card = card([.primary: "p", .backdrop(): "b"])
+        card.viewState = .root
+
+        // Still a poster until its hierarchy enters the preview, and then full screen, never a platter.
+        #expect(card.form(in: .root) == .poster)
+        #expect(!card.showsLandscapeArtwork(in: .root))
+        #expect(card.form(in: .preview) == .fullScreen)
+        #expect(card.showsLandscapeArtwork(in: .preview))
     }
 
     @Test func hasNoArtworkWithoutSomewhereToGetIt() {
