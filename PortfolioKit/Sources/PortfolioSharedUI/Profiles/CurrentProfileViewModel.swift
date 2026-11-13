@@ -35,4 +35,9 @@ public final class CurrentProfileViewModel {
     public func makeHomeViewModel() -> HomeViewModel {
         HomeViewModel(client: client, session: sessionManager.state.session)
     }
+
+    /// The profile's libraries, loading from their server.
+    public func makeLibrariesViewModel() -> LibrariesViewModel {
+        LibrariesViewModel(client: client, session: sessionManager.state.session)
+    }
 }

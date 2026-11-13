@@ -4,9 +4,11 @@ import SwiftUI
 
 /// The full-screen card's actions. They sit above the card rather than in it: the card is a button
 /// while it's a platter, and buttons can't contain other buttons.
-struct MediaDetailActionsView: View {
+struct MediaDetailActionsView<Focus: Hashable>: View {
     let item: MediaItem
-    var focus: FocusState<BrowsingFocus?>.Binding
+    var focus: FocusState<Focus?>.Binding
+    /// What focus is while it's on the actions.
+    let focusValue: Focus
 
     var body: some View {
         HStack(spacing: Metrics.spacing) {
@@ -15,7 +17,7 @@ struct MediaDetailActionsView: View {
             NavigationLink("Go deeper") {
                 MediaDetailView(viewModel: MediaDetailViewModel(item: item))
             }
-            .focused(focus, equals: .detail(item.id))
+            .focused(focus, equals: focusValue)
         }
         .padding(.leading, MediaCardView.Metrics.fullScreenDetailsLeadingPadding)
         .padding(.bottom, Metrics.bottomPadding)
@@ -25,8 +27,9 @@ struct MediaDetailActionsView: View {
 }
 
 extension MediaDetailActionsView {
+    // Computed: a generic type's nested types can't have stored static properties.
     struct Metrics {
-        static let spacing: CGFloat = 32
-        static let bottomPadding: CGFloat = 96
+        static var spacing: CGFloat { 32 }
+        static var bottomPadding: CGFloat { 96 }
     }
 }

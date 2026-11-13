@@ -70,7 +70,7 @@ public struct MediaCardView: View {
                     .resizable()
                     .scaledToFill()
             } placeholder: {
-                placeholderArtwork
+                ImagePlaceholderView()
             }
             if viewModel.loadsLandscapeArtwork(in: layer) {
                 // Until it has loaded, the poster shows through.
@@ -118,16 +118,4 @@ public struct MediaCardView: View {
         }
     }
 
-    /// A color while the artwork loads, or for an item without any.
-    private var placeholderArtwork: some View {
-        let hue = viewModel.artworkHue
-        return LinearGradient(
-            colors: [
-                Color(hue: hue, saturation: Metrics.lightColor.saturation, brightness: Metrics.lightColor.brightness),
-                Color(hue: hue, saturation: Metrics.darkColor.saturation, brightness: Metrics.darkColor.brightness),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
 }

@@ -14,7 +14,8 @@ public final class MediaCardViewModel {
         }
     }
     /// The card's own layer while its hierarchy is in `.preview`. Setting a previewed card to `.root`
-    /// expands it to fill the screen.
+    /// expands it to fill the screen. A card that's `.root` already while its hierarchy enters
+    /// `.preview` goes straight from poster to full screen, skipping the platter.
     public var viewState: ViewState = .preview
     /// Whether this is the highlighted card. In a preview, the cards that aren't are darkened.
     public var isFocused = false
@@ -93,14 +94,6 @@ public final class MediaCardViewModel {
         return .primary
     }
 
-    /// A hue for the color shown while the artwork loads, or instead of it if there's none. It's the
-    /// same for an item on every launch.
-    var artworkHue: Double {
-        // A stable hash: `hashValue` changes between launches.
-        let hash = item.id.unicodeScalars.reduce(0) { ($0 * Self.hashMultiplier + Int($1.value)) % Self.hueSteps }
-        return Double(hash) / Double(Self.hueSteps)
-    }
-
     /// The card's form in a hierarchy at `layer`.
     func form(in layer: ViewState) -> MediaCardForm {
         switch (layer, viewState) {
@@ -127,8 +120,6 @@ public final class MediaCardViewModel {
         form(in: layer) == .platter && !isFocused
     }
 
-    private static let hashMultiplier = 31
-    private static let hueSteps = 360
     static let moviePosterAspectRatio: CGFloat = 2.0 / 3
     static let aspectRatioRange: ClosedRange<CGFloat> = 0.5...2.4
 }

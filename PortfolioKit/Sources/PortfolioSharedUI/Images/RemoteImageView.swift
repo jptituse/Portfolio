@@ -41,6 +41,7 @@ public struct RemoteImageView<Content: View, Placeholder: View>: View {
                 ZStack(alignment: alignment) {
                     if layers.isEmpty || viewModel.isFadingInOverPlaceholder {
                         placeholder()
+                            .environment(\.isLoadingImage, viewModel.isLoading)
                             .transition(.identity)
                     }
                     ForEach(layers) { layer in

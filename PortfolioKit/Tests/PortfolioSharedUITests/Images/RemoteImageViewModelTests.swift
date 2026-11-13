@@ -27,6 +27,26 @@ struct RemoteImageViewModelTests {
         #expect(viewModel.image?.width == 4)
     }
 
+    @Test func saysWhileAnImageIsOnItsWay() async {
+        let viewModel = RemoteImageViewModel(pipeline: pipeline)
+
+        viewModel.request(url("Primary"))
+        #expect(viewModel.isLoading)
+        await viewModel.show(url("Primary"))
+
+        #expect(!viewModel.isLoading)
+    }
+
+    @Test func isNotLoadingWhenTheImageCannotLoadOrThereIsNone() async {
+        let viewModel = RemoteImageViewModel(pipeline: pipeline)
+
+        await viewModel.show(missingURL)
+        #expect(!viewModel.isLoading)
+
+        await viewModel.show(nil)
+        #expect(!viewModel.isLoading)
+    }
+
     @Test func showsThePlaceholderWithoutAURL() async {
         let viewModel = RemoteImageViewModel(pipeline: pipeline)
         await viewModel.show(url("Primary"))

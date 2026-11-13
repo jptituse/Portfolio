@@ -35,8 +35,6 @@ extension MediaCardView {
         /// Space the full-screen card leaves below its details for the actions drawn above it.
         static let actionsReservedHeight: CGFloat = 110
 
-        static let lightColor = (saturation: 0.55, brightness: 0.55)
-        static let darkColor = (saturation: 0.7, brightness: 0.2)
 
         static func cornerRadii(for form: MediaCardForm) -> RectangleCornerRadii {
             switch form {
