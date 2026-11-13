@@ -74,6 +74,56 @@ struct MediaItemLayoutTests {
         #expect(approximatelyEqual(previous.maxX, -RelatedMediaGroupCarouselView.Metrics.platterSpacing))
         #expect(approximatelyEqual(next.minX, size.width + RelatedMediaGroupCarouselView.Metrics.platterSpacing))
     }
+
+    // MARK: Artwork
+
+    @Test func aPostersArtworkFillsIt() {
+        let layout = layout(current: 1, layer: .root)
+        for index in posters.keys {
+            #expect(layout.artworkFrame(of: index) == layout.frame(of: index))
+        }
+    }
+
+    @Test func aPlattersArtworkIsAsBigAsTheScreenAndTheOpenOnesIsCentered() {
+        let layout = layout(current: 1)
+        #expect(layout.artworkFrame(of: 1) == CGRect(origin: .zero, size: size))
+        // The platter shows part of it.
+        #expect(layout.artworkFrame(of: 1).contains(layout.frame(of: 1)))
+    }
+
+    @Test func neighborsArtworkSitsALittleTowardTheirSide() {
+        let layout = layout(current: 1)
+        let parallax = RelatedMediaGroupCarouselView.Metrics.artworkParallax
+        #expect(layout.artworkFrame(of: 2) == CGRect(origin: CGPoint(x: parallax, y: 0), size: size))
+        #expect(layout.artworkFrame(of: 0) == CGRect(origin: CGPoint(x: -parallax, y: 0), size: size))
+    }
+
+    @Test func slidingAlongTheRowMovesTheArtworkFarLessThanTheCards() {
+        let before = layout(current: 1)
+        let after = layout(current: 2)
+
+        let cardMove = before.frame(of: 2).minX - after.frame(of: 2).minX
+        let artworkMove = before.artworkFrame(of: 2).minX - after.artworkFrame(of: 2).minX
+
+        // The platter sliding in uncovers its artwork, which comes to the center.
+        #expect(artworkMove == RelatedMediaGroupCarouselView.Metrics.artworkParallax)
+        #expect(cardMove > artworkMove * 5)
+        #expect(after.artworkFrame(of: 2) == CGRect(origin: .zero, size: size))
+    }
+
+    @Test func expandingTheOpenCardLeavesItsArtworkWhereItIs() {
+        #expect(layout(current: 1, openCardState: .root).artworkFrame(of: 1) == layout(current: 1).artworkFrame(of: 1))
+    }
+
+    @Test func expandingPushesTheNeighborsArtworkWithThem() {
+        let preview = layout(current: 1)
+        let expanded = layout(current: 1, openCardState: .root)
+        for index in [0, 2] {
+            let cardPush = expanded.frame(of: index).minX - preview.frame(of: index).minX
+            let artworkPush = expanded.artworkFrame(of: index).minX - preview.artworkFrame(of: index).minX
+            #expect(approximatelyEqual(artworkPush, cardPush))
+        }
+    }
 }
 
 extension MediaItemLayoutTests {

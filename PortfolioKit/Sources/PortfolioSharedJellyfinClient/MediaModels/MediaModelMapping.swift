@@ -12,15 +12,17 @@ extension Duration {
     }
 }
 
-extension ImageTags {
-    init(tags: [String: String]?, backdrops: [String]?) {
-        self.init(
-            primary: tags?[ImageType.primary.rawValue],
-            logo: tags?[ImageType.logo.rawValue],
-            thumb: tags?[ImageType.thumb.rawValue],
-            backdrops: backdrops ?? []
-        )
+/// An item's images by kind. Jellyfin lists their tags by image type, and its backdrops' tags apart,
+/// in order.
+func mediaImages(tags: [String: String]?, backdrops: [String]?) -> [MediaImageKind: String] {
+    var images: [MediaImageKind: String] = [:]
+    for (kind, type) in [(MediaImageKind.primary, ImageType.primary), (.thumb, .thumb), (.logo, .logo)] {
+        images[kind] = tags?[type.rawValue]
     }
+    for (index, tag) in (backdrops ?? []).enumerated() {
+        images[.backdrop(index: index)] = tag
+    }
+    return images
 }
 
 extension UserData {
@@ -62,7 +64,8 @@ extension MediaItem {
             officialRating: dto.officialRating,
             communityRating: dto.communityRating.map(Double.init),
             genres: dto.genres ?? [],
-            images: ImageTags(tags: dto.imageTags, backdrops: dto.backdropImageTags),
+            images: mediaImages(tags: dto.imageTags, backdrops: dto.backdropImageTags),
+            primaryImageAspectRatio: dto.primaryImageAspectRatio,
             userData: UserData(dto.userData)
         )
     }
@@ -92,7 +95,7 @@ extension Library {
             id: id,
             name: name,
             kind: Kind(dto.collectionType),
-            images: ImageTags(tags: dto.imageTags, backdrops: dto.backdropImageTags)
+            images: mediaImages(tags: dto.imageTags, backdrops: dto.backdropImageTags)
         )
     }
 }

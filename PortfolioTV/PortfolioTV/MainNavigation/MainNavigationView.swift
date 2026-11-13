@@ -10,10 +10,12 @@ struct MainNavigationView: View {
     let currentProfile: CurrentProfileViewModel
 
     @State private var viewModel = MainNavigationViewModel()
+    @State private var home: HomeViewModel
     @FocusState private var focusedSection: MainSection?
 
     init(currentProfile: CurrentProfileViewModel) {
         self.currentProfile = currentProfile
+        _home = State(initialValue: currentProfile.makeHomeViewModel())
     }
 
     var body: some View {
@@ -39,7 +41,7 @@ struct MainNavigationView: View {
             ZStack {
                 ForEach(viewModel.sectionsToKeep, id: \.self) { section in
                     let isShowing = section == viewModel.selection
-                    NavigationStack { view(for: section) }
+                    NavigationStack { view(for: section, isShowing: isShowing) }
                         .opacity(isShowing ? 1 : 0)
                         .disabled(!isShowing)
                         .accessibilityHidden(!isShowing)
@@ -48,9 +50,10 @@ struct MainNavigationView: View {
         }
     }
 
-    @ViewBuilder private func view(for section: MainSection) -> some View {
+    /// A section's view. Sections that load from the server load again each time they're shown.
+    @ViewBuilder private func view(for section: MainSection, isShowing: Bool) -> some View {
         switch section {
-        case .home: HomeView()
+        case .home: HomeView(viewModel: home, isShowing: isShowing)
         case .libraries: LibrariesView()
         case .search: SearchView()
         case .settings: SettingsView()

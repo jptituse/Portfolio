@@ -30,8 +30,15 @@ final class MediaBrowsingViewModel {
     /// Set while focus returns from the cards to a poster, when it's briefly on nothing at all.
     @ObservationIgnored private var isReturningFocusToPoster = false
 
-    init(groups: [RelatedMediaGroup]) {
-        self.groups = groups.map { RelatedMediaGroupViewModel(group: $0) }
+    /// - Parameter images: where the items' artwork comes from.
+    init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil) {
+        self.groups = groups.map { RelatedMediaGroupViewModel(group: $0, images: images) }
+    }
+
+    /// Sets the screen the cards' artwork is fetched for: its scale, and its size in points, which is the
+    /// size of a platter's artwork.
+    func setScreen(scale: CGFloat, size: CGSize) {
+        groups.forEach { $0.setScreen(scale: scale, size: size) }
     }
 
     func isOpen(_ group: RelatedMediaGroupViewModel) -> Bool {
@@ -63,7 +70,6 @@ final class MediaBrowsingViewModel {
     /// Runs once the cards are on screen on top of their posters: grows them into the preview.
     func growIntoPreview(focus: Focus) {
         guard let group = openGroup else { return }
-        group.extendHighlightedPoster()
         withAnimation(MediaCardView.Metrics.labelFadeOut) { group.setLabelsShowing(false) }
         withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .logicallyComplete) {
             viewState = .preview
@@ -74,6 +80,9 @@ final class MediaBrowsingViewModel {
             // The cards have grown, unless Menu sent them back meanwhile: now focus can move to the
             // open one, and the details can appear.
             guard let item = group.highlightedItem, viewState == .preview else { return }
+            // Only now does the poster under the open card widen, so closing lands on a wide poster.
+            // Widening it first would switch the card to its landscape art at once, with no fade.
+            group.extendHighlightedPoster()
             group.focusIsOnCards = true
             moveFocus(focus, to: .platter(item))
             withAnimation(MediaCardView.Metrics.labelFadeIn) { group.setLabelsShowing(true) }

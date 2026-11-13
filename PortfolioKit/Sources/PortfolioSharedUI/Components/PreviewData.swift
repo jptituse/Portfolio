@@ -63,4 +63,11 @@ extension CurrentProfileViewModel {
         CurrentProfileViewModel(client: .preview, sessionManager: .preview())
     }
 }
+
+extension HomeViewModel {
+    /// For previews of Home. Its server doesn't exist, so it shows that it couldn't be reached.
+    public static func preview() -> HomeViewModel {
+        HomeViewModel(client: .preview, session: .preview)
+    }
+}
 #endif

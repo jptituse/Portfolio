@@ -12,8 +12,7 @@ public struct AvatarView: View {
     }
 
     public var body: some View {
-        // FIXME: Load pictures through the shared image pipeline, with caching, once it exists (#9).
-        AsyncImage(url: pictureURL) { image in
+        RemoteImageView(url: pictureURL) { image in
             image
                 .resizable()
                 .scaledToFill()

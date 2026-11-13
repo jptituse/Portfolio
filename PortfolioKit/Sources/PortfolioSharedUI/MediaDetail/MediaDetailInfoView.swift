@@ -1,14 +1,32 @@
 import SwiftUI
 
-/// An item's title, metadata line and overview, as shown on its platter and full-screen card.
+/// An item's logo (or title, without one), metadata line and overview, as shown on its platter and
+/// full-screen card.
 struct MediaDetailInfoView: View {
     let viewModel: MediaDetailInfoViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
-            Text(viewModel.title)
-                .font(.title2)
-                .bold()
+            if let logoURL = viewModel.logoURL {
+                RemoteImageView(url: logoURL, alignment: .bottomLeading) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                } placeholder: {
+                    Color.clear
+                }
+                .frame(
+                    width: MediaCardView.Metrics.detailsLogoSize.width,
+                    height: MediaCardView.Metrics.detailsLogoSize.height,
+                    alignment: .bottomLeading
+                )
+                .accessibilityElement()
+                .accessibilityLabel(viewModel.title)
+            } else {
+                Text(viewModel.title)
+                    .font(.title2)
+                    .bold()
+            }
             if let metadata = viewModel.metadata {
                 Text(metadata)
                     .font(.callout)

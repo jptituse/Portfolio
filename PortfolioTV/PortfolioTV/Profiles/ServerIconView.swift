@@ -1,3 +1,4 @@
+import PortfolioSharedUI
 import SwiftUI
 
 /// A server's icon in a circle, for its tile in a picker: the icon its web client offers, or a stand-in
@@ -9,8 +10,7 @@ struct ServerIconView: View {
         Circle()
             .fill(.gray.opacity(Metrics.fillOpacity))
             .overlay {
-                // FIXME: Load the icon through the shared image pipeline, with caching, once it exists (#9).
-                AsyncImage(url: iconURL) { image in
+                RemoteImageView(url: iconURL) { image in
                     image
                         .resizable()
                         .scaledToFit()

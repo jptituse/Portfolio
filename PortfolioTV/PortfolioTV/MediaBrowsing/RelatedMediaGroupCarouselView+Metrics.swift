@@ -20,7 +20,9 @@ extension RelatedMediaGroupCarouselView {
         /// Space above the platters; they run to the bottom edge.
         static let topInset: CGFloat = 60
         /// Platter width as a share of the carousel's width; the rest shows the neighbors.
-        static let platterWidthShare: CGFloat = 0.76
+        static let platterWidthShare: CGFloat = 0.88
         static let platterSpacing: CGFloat = 48
+        /// How far off center a neighboring platter's artwork sits, toward its side.
+        static let artworkParallax: CGFloat = 160
     }
 }

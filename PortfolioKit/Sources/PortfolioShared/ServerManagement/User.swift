@@ -3,7 +3,7 @@ public struct User: Hashable, Sendable, Identifiable, Codable {
     public let id: String
     public let name: String
     public let serverID: String?
-    /// Reference to the user's avatar image, if they have one. Opaque, like `ImageTags`.
+    /// Reference to the user's avatar image, if they have one. Opaque, like `MediaItem.images`.
     public let primaryImageTag: String?
     /// Whether signing in needs a password. Some accounts, often children's, have none.
     public let hasPassword: Bool
