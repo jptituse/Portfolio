@@ -32,9 +32,20 @@ final class RelatedMediaGroupViewModel: Identifiable {
     @ObservationIgnored private var globalPosterFrames: [MediaItem.ID: CGRect] = [:]
     @ObservationIgnored private var idleTimer: Task<Void, Never>?
     @ObservationIgnored private let idleDelay: Duration
+    @ObservationIgnored private let images: (any MediaImageResolver)?
+    /// The sizes the cards' artwork is fetched at, in pixels: a poster's, and the screen's for
+    /// landscape art.
+    /// The screen's scale and size, which the artwork's sizes in pixels follow.
+    @ObservationIgnored private var screen: (scale: CGFloat, size: CGSize)?
 
-    init(group: RelatedMediaGroup, idleDelay: Duration = RelatedMediaGroupPosterView.Metrics.idleDelay) {
+    /// - Parameter images: where the items' artwork comes from.
+    init(
+        group: RelatedMediaGroup,
+        images: (any MediaImageResolver)? = nil,
+        idleDelay: Duration = RelatedMediaGroupPosterView.Metrics.idleDelay
+    ) {
         self.group = group
+        self.images = images
         self.idleDelay = idleDelay
     }
 
@@ -43,9 +54,24 @@ final class RelatedMediaGroupViewModel: Identifiable {
     /// The item's card. A poster and the card that grows out of it share one, so they always agree.
     func card(for item: MediaItem) -> MediaCardViewModel {
         if let card = cards[item.id] { return card }
-        let card = MediaCardViewModel(item: item)
+        let card = MediaCardViewModel(item: item, images: images)
         cards[item.id] = card
+        setArtworkSizes(of: card)
         return card
+    }
+
+    /// A poster's size in the row: as wide as its own shape makes it, and once it has widened, at least
+    /// as wide as `extendedPosterWidth`. A poster that's wider already keeps its width.
+    func posterSize(of card: MediaCardViewModel) -> CGSize {
+        typealias Metrics = RelatedMediaGroupPosterView.Metrics
+        let width = Metrics.posterSize.height * card.posterAspectRatio
+        return CGSize(width: card.isExtended ? max(width, Metrics.extendedPosterWidth) : width, height: Metrics.posterSize.height)
+    }
+
+    /// The room a row adds at its end before the highlighted poster widens: as much as it grows.
+    var extensionRoom: CGFloat {
+        guard let card = highlightedCard else { return 0 }
+        return max(0, RelatedMediaGroupPosterView.Metrics.extendedPosterWidth - Self.restingWidth(of: card))
     }
 
     var highlightedCard: MediaCardViewModel? {
@@ -79,12 +105,35 @@ final class RelatedMediaGroupViewModel: Identifiable {
         idleTimer?.cancel()
         withAnimation(RelatedMediaGroupPosterView.Metrics.extend) { moveHighlight(to: item) }
         if highlightedCard?.isExtended != true { startIdleTimer(for: item) }
+        warmLandscapeArtwork(around: item)
     }
 
     /// Focus left the row's posters: nothing in it is highlighted any more.
     func focusLeft() {
         idleTimer?.cancel()
         withAnimation(RelatedMediaGroupPosterView.Metrics.extend) { moveHighlight(to: nil) }
+        warmLandscapeArtwork(around: nil)
+    }
+
+    /// Sets the screen the cards' artwork is fetched for: its scale, and its size in points, which is the
+    /// size of a platter's artwork.
+    func setScreen(scale: CGFloat, size: CGSize) {
+        screen = (scale, size)
+        cards.values.forEach(setArtworkSizes)
+    }
+
+    /// The sizes, in pixels, a card's poster is drawn at resting in the row, and its landscape art and
+    /// logo at most: the screen, and the details of a platter or full screen.
+    private func setArtworkSizes(of card: MediaCardViewModel) {
+        guard let screen else { return }
+        let posterSize = CGSize(width: Self.restingWidth(of: card), height: RelatedMediaGroupPosterView.Metrics.posterSize.height)
+        card.posterArtworkSize = RemoteImageViewModel.requestSize(for: posterSize, scale: screen.scale)
+        card.landscapeArtworkSize = RemoteImageViewModel.requestSize(for: screen.size, scale: screen.scale)
+        card.logoArtworkSize = RemoteImageViewModel.requestSize(for: MediaCardView.Metrics.detailsLogoSize, scale: screen.scale)
+    }
+
+    private static func restingWidth(of card: MediaCardViewModel) -> CGFloat {
+        RelatedMediaGroupPosterView.Metrics.posterSize.height * card.posterAspectRatio
     }
 
     // MARK: Opening
@@ -105,6 +154,7 @@ final class RelatedMediaGroupViewModel: Identifiable {
     func highlightPlatter(_ item: MediaItem.ID) {
         moveHighlight(to: item)
         extendHighlightedPoster()
+        warmLandscapeArtwork(around: item)
     }
 
     // MARK: The open carousel
@@ -132,7 +182,9 @@ final class RelatedMediaGroupViewModel: Identifiable {
             currentIndex: highlightedIndex,
             posterFrames: posterFrames(relativeTo: globalFrame.origin),
             liftedIndex: startsLifted ? highlightedIndex : nil,
-            liftScale: openCard.isExtended ? Metrics.extendedPosterLiftScale : Metrics.posterLiftScale,
+            // tvOS enlarges a wide poster less, in proportion, than a narrow one.
+            liftScale: posterSize(of: openCard).width >= RelatedMediaGroupPosterView.Metrics.extendedPosterWidth
+                ? Metrics.extendedPosterLiftScale : Metrics.posterLiftScale,
             layer: layer,
             openCardState: openCard.viewState
         )
@@ -149,6 +201,24 @@ final class RelatedMediaGroupViewModel: Identifiable {
             }
         }
         return frames
+    }
+
+    /// Loads the landscape art of the highlighted card and those that would sit beside it as platters,
+    /// ahead of time, so a poster widening, the row opening or sliding along fades into it as the cards
+    /// move. Any other card's goes, so only a few screen-sized images are in memory.
+    private func warmLandscapeArtwork(around item: MediaItem.ID?) {
+        let reach = RelatedMediaGroupCarouselView.Metrics.neighborsDrawn
+        let warm: Set<MediaItem.ID> = item.flatMap { item in
+            group.items.firstIndex { $0.id == item }.map { index in
+                Set(group.items[max(0, index - reach)...min(group.items.count - 1, index + reach)].map(\.id))
+            }
+        } ?? []
+        for item in group.items where warm.contains(item.id) {
+            card(for: item).isWarm = true
+        }
+        for card in cards.values where !warm.contains(card.item.id) {
+            card.isWarm = false
+        }
     }
 
     private func moveHighlight(to item: MediaItem.ID?) {

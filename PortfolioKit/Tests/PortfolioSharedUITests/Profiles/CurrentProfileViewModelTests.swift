@@ -41,4 +41,12 @@ struct CurrentProfileViewModelTests {
         #expect(sessionManager.servers.first?.isSignedIn("user-1") == true)
         #expect(viewModel.tile == nil)
     }
+
+    @Test func makesAHomeWithArtworkFromTheProfilesServer() throws {
+        try sessionManager.signIn(.sample())
+
+        let home = viewModel.makeHomeViewModel()
+
+        #expect((home.images as? JellyfinImageResolver)?.server == .sample())
+    }
 }

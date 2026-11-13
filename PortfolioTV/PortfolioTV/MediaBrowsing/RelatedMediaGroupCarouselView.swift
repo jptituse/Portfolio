@@ -22,10 +22,11 @@ struct RelatedMediaGroupCarouselView: View {
             ForEach(layout.drawnIndices, id: \.self) { index in
                 let item = viewModel.group.items[index]
                 let frame = layout.frame(of: index)
+                let artworkFrame = layout.artworkFrame(of: index).offsetBy(dx: -frame.minX, dy: -frame.minY)
                 Button {
                     onExpand(item.id)
                 } label: {
-                    MediaCardView(viewModel: viewModel.card(for: item))
+                    MediaCardView(viewModel: viewModel.card(for: item), artworkFrame: artworkFrame)
                         .frame(width: frame.width, height: frame.height)
                 }
                 .buttonStyle(.borderless)

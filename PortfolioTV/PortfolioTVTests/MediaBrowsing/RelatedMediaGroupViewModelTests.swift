@@ -146,4 +146,105 @@ extension RelatedMediaGroupViewModelTests {
         #expect(viewModel.openCardIsExpanded)
         #expect(viewModel.openCardFocus == .detail(group.items[1].id))
     }
+    // MARK: Artwork
+
+    @Test func givesEveryCardTheSizesToFetchArtworkAt() {
+        let viewModel = makeViewModel()
+        let existing = card(0, in: viewModel)
+
+        viewModel.setScreen(scale: 2, size: CGSize(width: 1920, height: 1080))
+
+        // A movie poster as drawn in the row, the whole screen, and the logo in the details, in pixels.
+        #expect(existing.posterArtworkSize == CGSize(width: 500, height: 800))
+        #expect(existing.landscapeArtworkSize == CGSize(width: 3900, height: 2200))
+        #expect(existing.logoArtworkSize == RemoteImageViewModel.requestSize(for: MediaCardView.Metrics.detailsLogoSize, scale: 2))
+        // Cards made afterwards get them too.
+        #expect(card(2, in: viewModel).landscapeArtworkSize == CGSize(width: 3900, height: 2200))
+    }
+
+    @Test func fetchesAWidePosterAtItsOwnShape() {
+        let still = MediaItem(id: "still", name: "Pilot", kind: .episode, primaryImageAspectRatio: 16.0 / 9)
+        let viewModel = RelatedMediaGroupViewModel(group: RelatedMediaGroup(id: "g", title: "G", items: [still]))
+        viewModel.setScreen(scale: 2, size: CGSize(width: 1920, height: 1080))
+
+        #expect(viewModel.card(for: still).posterArtworkSize == CGSize(width: 1400, height: 800))
+    }
+
+    // MARK: Poster sizes
+
+    typealias PosterMetrics = RelatedMediaGroupPosterView.Metrics
+
+    func row(of ratios: [Double?]) -> (RelatedMediaGroupViewModel, [MediaItem]) {
+        let items = ratios.enumerated().map { MediaItem(id: "item-\($0.offset)", name: "Item", kind: .movie, primaryImageAspectRatio: $0.element) }
+        return (RelatedMediaGroupViewModel(group: RelatedMediaGroup(id: "g", title: "G", items: items), idleDelay: .seconds(60)), items)
+    }
+
+    @Test func drawsEachPosterInItsOwnShape() {
+        let (viewModel, items) = row(of: [nil, 16.0 / 9])
+
+        #expect(viewModel.posterSize(of: viewModel.card(for: items[0])) == PosterMetrics.posterSize)
+        #expect(viewModel.posterSize(of: viewModel.card(for: items[1])).width == PosterMetrics.posterSize.height * 16 / 9)
+    }
+
+    @Test func widensANarrowPosterToTheWideWidth() {
+        let (viewModel, items) = row(of: [nil])
+        let card = viewModel.card(for: items[0])
+
+        card.isExtended = true
+
+        #expect(viewModel.posterSize(of: card).width == PosterMetrics.extendedPosterWidth)
+    }
+
+    @Test func neverNarrowsAPosterWiderThanTheWideWidth() {
+        let (viewModel, items) = row(of: [2.39])
+        let card = viewModel.card(for: items[0])
+        let resting = viewModel.posterSize(of: card)
+
+        card.isExtended = true
+
+        #expect(viewModel.posterSize(of: card) == resting)
+        #expect(resting.width > PosterMetrics.extendedPosterWidth)
+    }
+
+    @Test func makesAsMuchRoomAsTheHighlightedPosterGrows() {
+        let (viewModel, items) = row(of: [nil, 16.0 / 9])
+
+        viewModel.posterFocused(items[0].id)
+        #expect(viewModel.extensionRoom == PosterMetrics.extendedPosterWidth - PosterMetrics.posterSize.width)
+
+        // A 16:9 poster is as wide as it gets already.
+        viewModel.posterFocused(items[1].id)
+        #expect(viewModel.extensionRoom == 0)
+    }
+
+    @Test func warmsTheHighlightedCardAndThoseBesideIt() {
+        let group = RelatedMediaGroup(id: "long", title: "Long", items: Array(MediaItem.samples.prefix(8)))
+        let viewModel = RelatedMediaGroupViewModel(group: group, idleDelay: .seconds(60))
+
+        viewModel.posterFocused(group.items[4].id)
+
+        let warm = group.items.filter { viewModel.card(for: $0).isWarm }.map(\.id)
+        let reach = RelatedMediaGroupCarouselView.Metrics.neighborsDrawn
+        #expect(warm == group.items[(4 - reach)...(4 + reach)].map(\.id))
+    }
+
+    @Test func coolsTheCardsFocusLeaves() {
+        let viewModel = makeViewModel()
+        viewModel.posterFocused(group.items[0].id)
+
+        viewModel.focusLeft()
+
+        #expect(group.items.allSatisfy { !viewModel.card(for: $0).isWarm })
+    }
+
+    @Test func warmsAroundThePlatterTheRowSlidesTo() {
+        let group = RelatedMediaGroup(id: "long", title: "Long", items: Array(MediaItem.samples.prefix(8)))
+        let viewModel = RelatedMediaGroupViewModel(group: group, idleDelay: .seconds(60))
+        viewModel.posterFocused(group.items[0].id)
+
+        viewModel.highlightPlatter(group.items[5].id)
+
+        #expect(!viewModel.card(for: group.items[0]).isWarm)
+        #expect(viewModel.card(for: group.items[7]).isWarm)
+    }
 }

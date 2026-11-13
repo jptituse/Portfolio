@@ -69,8 +69,7 @@ struct SignInView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 if let splashImageURL = viewModel.splashImageURL {
-                    // FIXME: Load the image through the shared image pipeline, with caching, once it exists (#9).
-                    AsyncImage(url: splashImageURL) { image in
+                    RemoteImageView(url: splashImageURL) { image in
                         image
                             .resizable()
                             .scaledToFill()
@@ -103,8 +102,7 @@ struct SignInView: View {
     /// The icon the server's web client offers, or a stand-in for a server without one.
     @ViewBuilder private var serverIcon: some View {
         if let serverIconURL = viewModel.serverIconURL {
-            // FIXME: Load the icon through the shared image pipeline, with caching, once it exists (#9).
-            AsyncImage(url: serverIconURL) { image in
+            RemoteImageView(url: serverIconURL) { image in
                 image
                     .resizable()
                     .scaledToFit()

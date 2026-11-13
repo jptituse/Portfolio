@@ -61,7 +61,7 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(sampleProfile.waitForExistence(timeout: 10), "A relaunch should open on the profile picker")
         XCTAssertTrue(waitForFocus(sampleProfile))
         press(.select)
-        XCTAssertTrue(poster("Sample Movie 1").waitForExistence(timeout: 10), "The profile didn't open")
+        XCTAssertTrue(homeRetry.waitForExistence(timeout: 10), "The profile didn't open")
     }
 
     @MainActor
@@ -81,7 +81,7 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(waitForFocus(sampleProfile))
         // It's still signed in, so it opens straight away, on a fresh Home.
         press(.select)
-        XCTAssertTrue(waitForFocus(poster("Sample Movie 1")), "The profile didn't open again on Home")
+        XCTAssertTrue(waitForFocus(homeRetry), "The profile didn't open again on Home")
     }
 
     @MainActor
@@ -154,11 +154,26 @@ final class AppNavigationUITests: XCTestCase {
     }
 
     @MainActor
-    func testTheAppOpensOnTheFirstPosterOfHome() throws {
+    func testTheAppOpensWithFocusOnHome() throws {
         signInWithSampleSession()
 
-        XCTAssertTrue(waitForFocus(poster("Sample Movie 1")), "The app didn't open on the first poster")
+        XCTAssertTrue(waitForFocus(homeRetry), "The app didn't open with focus on Home")
         XCTAssertFalse(sidebarHasFocus(), "The sidebar shouldn't have focus when the app opens")
+    }
+
+    @MainActor
+    func testHomeSaysWhenItCannotReachTheServer() throws {
+        signInWithSampleSession()
+
+        let message = app.staticTexts["Couldn't reach Preview Server. Check that it's still running, and try again."]
+        XCTAssertTrue(message.waitForExistence(timeout: 10), "Home didn't say why it's empty")
+        XCTAssertFalse(poster("Sample Movie 1").exists, "Home shouldn't show sample items")
+
+        // Trying again asks the server again, which still isn't there.
+        XCTAssertTrue(waitForFocus(homeRetry))
+        press(.select)
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertTrue(homeRetry.exists)
     }
 
     @MainActor
@@ -182,7 +197,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testAPosterWidensWhenFocusStaysOnItAndTheRowClosesBackOntoIt() throws {
-        focusFirstPosterOnHome()
+        focusFirstPosterInLibraries()
         press(.right, times: 2)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 3")))
         let normalWidth = poster("Sample Movie 3").frame.width
@@ -203,7 +218,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testAWidePosterNearTheEdgeOfTheScreenStaysInView() throws {
-        focusFirstPosterOnHome()
+        focusFirstPosterInLibraries()
         press(.right, times: 5)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 6")))
         let normalWidth = poster("Sample Movie 6").frame.width
@@ -215,7 +230,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testMovingPastAWidePosterAtTheEdgeAndBackKeepsTheRowInPlace() throws {
-        focusFirstPosterOnHome()
+        focusFirstPosterInLibraries()
         press(.right, times: 5)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 6")))
         let normalWidth = poster("Sample Movie 6").frame.width
@@ -238,7 +253,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testTheLastPosterOfARowStaysInViewWhenItWidens() throws {
-        focusFirstPosterOnHome()
+        focusFirstPosterInLibraries()
         press(.right, times: 19)
         XCTAssertTrue(waitForFocus(poster("Sample Movie 20")))
         let normalWidth = poster("Sample Movie 20").frame.width
@@ -263,7 +278,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor
     func testClosingLandsOnAWidePosterEvenIfFocusDidNotStayOnIt() throws {
-        focusFirstPosterOnHome()
+        focusFirstPosterInLibraries()
         let normalWidth = poster("Sample Movie 1").frame.width
 
         // Opened straight away, then moved to the next platter.
@@ -281,7 +296,7 @@ final class AppNavigationUITests: XCTestCase {
     func testEveryTabGoesFromPosterToPreviewToFullDetailAndBack() throws {
         signInWithSampleSession()
 
-        for tab in ["Home", "Libraries", "Search", "Settings"] {
+        for tab in ["Libraries", "Search", "Settings"] {
             goToTab(tab)
             openCarousel()
 
@@ -314,7 +329,7 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testThePreviewOpensOnThePosterYouChoseAndClosesBackOntoIt() throws {
         signInWithSampleSession()
-        goToTab("Home")
+        goToTab("Libraries")
 
         focus(poster("Sample Movie 3"), moving: .right)
         press(.select)
@@ -329,7 +344,7 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testAScrolledRowOpensAndClosesOnTheChosenPoster() throws {
         signInWithSampleSession()
-        goToTab("Home")
+        goToTab("Libraries")
 
         // Move far enough along that the row has scrolled past its first posters.
         focus(poster("Sample Movie 1"), moving: .right, orElse: .down)
@@ -355,7 +370,7 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor
     func testSelectExpandsAPlatterAndLeftBringsInTheSidebar() throws {
         signInWithSampleSession()
-        goToTab("Home")
+        goToTab("Libraries")
         openCarousel()
 
         // Left from the first platter brings in the sidebar; Right goes back to the platter.
@@ -383,7 +398,13 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(sampleSession.waitForExistence(timeout: 10))
         focus(sampleSession, moving: .down)
         press(.select)
-        XCTAssertTrue(poster("Sample Movie 1").waitForExistence(timeout: 10), "The signed-in app didn't appear")
+        XCTAssertTrue(homeRetry.waitForExistence(timeout: 10), "The signed-in app didn't appear")
+    }
+
+    /// Home's Try Again button. The sample session's server doesn't exist, so Home says it can't reach
+    /// it and offers to try again.
+    private var homeRetry: XCUIElement {
+        app.buttons["home.retry"]
     }
 
     /// The sample session's tile on the profile picker.
@@ -398,9 +419,9 @@ final class AppNavigationUITests: XCTestCase {
         press(.select)
     }
 
-    private func focusFirstPosterOnHome() {
+    private func focusFirstPosterInLibraries() {
         signInWithSampleSession()
-        goToTab("Home")
+        goToTab("Libraries")
         focus(poster("Sample Movie 1"), moving: .right, orElse: .down)
     }
 
@@ -453,7 +474,7 @@ final class AppNavigationUITests: XCTestCase {
 
     /// Text only that tab's view shows, to confirm which tab is showing.
     private let tabMessages = [
-        "Home": "Continue Watching, Next Up and recently added items will appear here.",
+        "Home": "What's new in your libraries.",
         "Libraries": "Your movie, show and other libraries will appear here.",
         "Search": "Search for movies, shows, episodes and people.",
         "Settings": "Your server, account and playback settings will appear here.",

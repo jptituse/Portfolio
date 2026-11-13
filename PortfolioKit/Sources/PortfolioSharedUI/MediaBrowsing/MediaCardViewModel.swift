@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 import PortfolioShared
 
@@ -7,7 +8,10 @@ import PortfolioShared
 @Observable
 public final class MediaCardViewModel {
     public var item: MediaItem {
-        didSet { detailInfo.update(with: item) }
+        didSet {
+            detailInfo.update(with: item)
+            detailInfo.logoURL = logoArtworkURL
+        }
     }
     /// The card's own layer while its hierarchy is in `.preview`. Setting a previewed card to `.root`
     /// expands it to fill the screen.
@@ -20,17 +24,77 @@ public final class MediaCardViewModel {
     public var showsLabels = true
 
     let detailInfo: MediaDetailInfoViewModel
+    /// The sizes the artwork is fetched at, in pixels. The poster comes at the size it's drawn in a
+    /// row. Landscape art comes at the screen's size, the most a platter's artwork covers, so a wide
+    /// poster, its platter and full screen show the very same image, which grows with the card. The
+    /// logo comes at the most it takes up on a wide poster.
+    public var posterArtworkSize: CGSize?
+    public var landscapeArtworkSize: CGSize?
+    public var logoArtworkSize: CGSize? {
+        didSet { detailInfo.logoURL = logoArtworkURL }
+    }
+    /// Whether the landscape art loads ahead of time, so it's ready for the card to fade into as it
+    /// moves: for the highlighted card and those beside it.
+    public var isWarm = false
 
-    public init(item: MediaItem) {
+    @ObservationIgnored private let images: (any MediaImageResolver)?
+
+    /// - Parameter images: where the item's artwork comes from. Without it, the card shows a color.
+    public init(item: MediaItem, images: (any MediaImageResolver)? = nil) {
         self.item = item
+        self.images = images
         detailInfo = MediaDetailInfoViewModel(item: item)
     }
 
     /// The title shown on the poster.
     var title: String { item.name }
 
-    /// A hue for the stand-in artwork, the same for an item on every launch.
-    // FIXME: Remove this once cards show the item's artwork from the server (#9).
+    /// The poster's shape, width over height: the item's own, so a 16:9 poster is drawn 16:9, else a
+    /// movie poster's. Shapes far from any poster's are kept within reason.
+    public var posterAspectRatio: CGFloat {
+        item.primaryImageAspectRatio.map { min(max(CGFloat($0), Self.aspectRatioRange.lowerBound), Self.aspectRatioRange.upperBound) }
+            ?? Self.moviePosterAspectRatio
+    }
+
+    /// Where the item's logo is, or nil if it has none, so the title shows instead, or its size isn't
+    /// known yet.
+    var logoArtworkURL: URL? {
+        logoArtworkSize.flatMap { images?.url(for: item, .logo, pixelSize: $0) }
+    }
+
+    /// Where the poster is, or nil if the item has none or its size isn't known yet.
+    var posterArtworkURL: URL? {
+        posterArtworkSize.flatMap { images?.url(for: item, .primary, pixelSize: $0) }
+    }
+
+    /// Where the landscape art is, or nil if the item has none or its size isn't known yet.
+    var landscapeArtworkURL: URL? {
+        landscapeArtworkSize.flatMap { images?.url(for: item, landscapeArtworkKind, pixelSize: $0) }
+    }
+
+    /// Whether the landscape art covers the poster in a hierarchy at `layer`: once the poster widens,
+    /// and on a platter and full screen. Changing this inside the animation that moves the card fades
+    /// between them as it moves.
+    func showsLandscapeArtwork(in layer: ViewState) -> Bool {
+        form(in: layer) != .poster || isExtended
+    }
+
+    /// Whether the landscape art is drawn at all: while it shows, or while it's loaded ahead of time.
+    /// Otherwise it isn't, so only a few screen-sized images are in memory at once.
+    func loadsLandscapeArtwork(in layer: ViewState) -> Bool {
+        showsLandscapeArtwork(in: layer) || isWarm
+    }
+
+    /// The backdrop, which has no title on it, since the card shows the title itself; else the
+    /// thumbnail, else the poster.
+    var landscapeArtworkKind: MediaImageKind {
+        if item.images[.backdrop()] != nil { return .backdrop() }
+        if item.images[.thumb] != nil { return .thumb }
+        return .primary
+    }
+
+    /// A hue for the color shown while the artwork loads, or instead of it if there's none. It's the
+    /// same for an item on every launch.
     var artworkHue: Double {
         // A stable hash: `hashValue` changes between launches.
         let hash = item.id.unicodeScalars.reduce(0) { ($0 * Self.hashMultiplier + Int($1.value)) % Self.hueSteps }
@@ -46,9 +110,10 @@ public final class MediaCardViewModel {
         }
     }
 
-    /// Whether the poster title shows: only on a poster, and only while the labels are showing.
-    func showsTitle(in layer: ViewState) -> Bool {
-        !form(in: layer).showsDetails && showsLabels
+    /// Whether the logo shows: on a poster that has widened, and only while the labels are showing.
+    /// A poster at rest shows just its artwork.
+    func showsLogo(in layer: ViewState) -> Bool {
+        form(in: layer) == .poster && isExtended && showsLabels
     }
 
     /// Whether the details show: only once the card is bigger than a poster, and only while the labels
@@ -64,4 +129,6 @@ public final class MediaCardViewModel {
 
     private static let hashMultiplier = 31
     private static let hueSteps = 360
+    static let moviePosterAspectRatio: CGFloat = 2.0 / 3
+    static let aspectRatioRange: ClosedRange<CGFloat> = 0.5...2.4
 }

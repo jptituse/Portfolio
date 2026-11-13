@@ -69,7 +69,29 @@ struct MediaItemLayout {
     /// takes them just off the sides.
     func expandedFrame(of index: Int) -> CGRect {
         if index == currentIndex { return CGRect(origin: .zero, size: size) }
-        let push = index < currentIndex ? -centeredX : centeredX
-        return previewFrame(of: index).offsetBy(dx: push, dy: 0)
+        return previewFrame(of: index).offsetBy(dx: push(of: index), dy: 0)
+    }
+
+    /// Where a card's artwork is. On a poster it fills the card. On a platter it's as big as the
+    /// carousel, and the card shows the part it covers: the open card's artwork is centered, and each
+    /// neighbor's sits a little further toward its own side. Sliding along the row moves the cards a
+    /// platter apart but their artwork only that little, so each platter uncovers the artwork beneath
+    /// it as it slides in. Expanding the open card uncovers the rest of its artwork, which stays put.
+    func artworkFrame(of index: Int) -> CGRect {
+        switch (layer, openCardState) {
+        case (.root, _): frame(of: index)
+        case (.preview, .preview): previewArtworkFrame(of: index)
+        case (.preview, .root):
+            index == currentIndex ? previewArtworkFrame(of: index) : previewArtworkFrame(of: index).offsetBy(dx: push(of: index), dy: 0)
+        }
+    }
+
+    private func previewArtworkFrame(of index: Int) -> CGRect {
+        CGRect(origin: CGPoint(x: CGFloat(index - currentIndex) * Metrics.artworkParallax, y: 0), size: size)
+    }
+
+    /// How far an expanded card pushes a neighbor: as far as the open card's edge on that side moved.
+    private func push(of index: Int) -> CGFloat {
+        index < currentIndex ? -centeredX : centeredX
     }
 }

@@ -26,7 +26,7 @@ struct RelatedMediaGroupPosterView: View {
                                 .id(item.id)
                         }
                     }
-                    .padding(.trailing, viewModel.isMakingRoomToExtend ? Metrics.extensionRoom : 0)
+                    .padding(.trailing, viewModel.isMakingRoomToExtend ? viewModel.extensionRoom : 0)
                     .padding(.vertical, Metrics.verticalPadding)
                 }
                 .scrollClipDisabled()
@@ -49,11 +49,12 @@ struct RelatedMediaGroupPosterView: View {
 
     private func poster(for item: MediaItem) -> some View {
         let card = viewModel.card(for: item)
+        let size = viewModel.posterSize(of: card)
         return Button {
             onSelect(item)
         } label: {
             MediaCardView(viewModel: card)
-                .frame(width: card.isExtended ? Metrics.extendedPosterWidth : Metrics.posterSize.width, height: Metrics.posterSize.height)
+                .frame(width: size.width, height: size.height)
                 .contentShape(.hoverEffect, .rect(cornerRadius: MediaCardView.Metrics.posterCornerRadius))
                 .hoverEffect(.highlight)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in

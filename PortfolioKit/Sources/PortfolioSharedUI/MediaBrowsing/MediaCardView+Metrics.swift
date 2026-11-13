@@ -7,6 +7,11 @@ extension MediaCardView {
         public static var labelFadeOut: Animation { .easeOut(duration: 0.064) }
         /// A label arriving once its card has stopped moving.
         public static var labelFadeIn: Animation { .easeInOut(duration: 0.25) }
+        /// Landscape art covering the poster, early in a card's 0.44 s widening or growth.
+        static var landscapeFadeIn: Animation { .easeOut(duration: 0.2) }
+        /// Landscape art uncovering the poster as a card narrows or shrinks back to one, matching its
+        /// motion.
+        static var landscapeFadeOut: Animation { .smooth(duration: 0.44) }
 
         public static let posterCornerRadius: CGFloat = 16
         static let platterCornerRadius: CGFloat = 24
@@ -14,7 +19,14 @@ extension MediaCardView {
         static let scrimOpacity = 0.85
         static let dimmedOpacity = 0.35
         static let titleLineLimit = 2
-        static let titlePadding: CGFloat = 16
+        /// The most a wide poster's logo takes up, at its bottom-leading corner.
+        public static let logoSize = CGSize(width: 240, height: 90)
+        /// The most the logo takes up in the details of a platter or full screen, its largest. Logos are
+        /// fetched at this size and drawn smaller on wide posters.
+        public static let detailsLogoSize = CGSize(width: 520, height: 160)
+        static let logoPadding: CGFloat = 20
+        static let logoShadowOpacity = 0.5
+        static let logoShadowRadius: CGFloat = 6
 
         public static let fullScreenDetailsLeadingPadding: CGFloat = 96
         static let platterDetailsLeadingPadding: CGFloat = 64

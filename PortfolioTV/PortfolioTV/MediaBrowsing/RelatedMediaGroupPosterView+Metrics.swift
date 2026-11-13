@@ -2,10 +2,11 @@ import SwiftUI
 
 extension RelatedMediaGroupPosterView {
     struct Metrics {
+        /// A movie poster's size. Every poster is this tall, and as wide as its own shape makes it.
         static let posterSize = CGSize(width: 250, height: 375)
-        /// Wide enough to show a 16:9 thumbnail at the poster's height.
-        static let extendedPosterWidth: CGFloat = 667
-        static var extensionRoom: CGFloat { extendedPosterWidth - posterSize.width }
+        /// Wide enough to show a 16:9 thumbnail at the poster's height. A narrower poster widens to it;
+        /// a wider one stays as it is.
+        static var extendedPosterWidth: CGFloat { posterSize.height * 16 / 9 }
         /// Long enough for the row to be laid out with that room before a poster grows into it.
         static let makingRoomDelay: Duration = .milliseconds(50)
         static let posterSpacing: CGFloat = 40

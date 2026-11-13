@@ -18,7 +18,8 @@ struct MediaModelMappingTests {
         #expect(item.officialRating == "PG-13")
         #expect(abs((item.communityRating ?? 0) - 7.9) < 0.001)
         #expect(item.genres == ["Drama", "Science Fiction"])
-        #expect(item.images == ImageTags(primary: "p-4f1c", logo: "l-9a2e", thumb: "t-77b0", backdrops: ["b-0d13", "b-58aa"]))
+        #expect(item.images == [.primary: "p-4f1c", .logo: "l-9a2e", .thumb: "t-77b0", .backdrop(): "b-0d13", .backdrop(index: 1): "b-58aa"])
+        #expect(item.primaryImageAspectRatio == 2.0 / 3)
         #expect(item.userData == UserData(isPlayed: false, isFavorite: true, playbackPosition: .seconds(3600), playCount: 1))
     }
 
@@ -31,7 +32,7 @@ struct MediaModelMappingTests {
         #expect(item.kind == .other("Unknown"))
         #expect(item.runtime == nil)
         #expect(item.genres.isEmpty)
-        #expect(item.images == ImageTags())
+        #expect(item.images == [:])
         #expect(item.userData == UserData())
     }
 
@@ -45,8 +46,8 @@ struct MediaModelMappingTests {
 
         #expect(libraries.map(\.name) == ["Movies", "Shows", "Everything Else", "Books"])
         #expect(libraries.map(\.kind) == [.movies, .tvShows, .mixed, .other("books")])
-        #expect(libraries[0].images.primary == "v-movies")
-        #expect(libraries[1].images.primary == nil)
+        #expect(libraries[0].images[.primary] == "v-movies")
+        #expect(libraries[1].images[.primary] == nil)
     }
 
     @Test func convertsTicksToDurations() {

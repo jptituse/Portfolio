@@ -18,9 +18,11 @@ struct MediaBrowsingView<Header: View>: View {
 
     @State private var viewModel: MediaBrowsingViewModel
     @FocusState private var focus: BrowsingFocus?
+    @Environment(\.displayScale) private var displayScale
 
-    init(groups: [RelatedMediaGroup], @ViewBuilder header: () -> Header) {
-        _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups))
+    /// - Parameter images: where the items' artwork comes from. Without it, cards show a color.
+    init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil, @ViewBuilder header: () -> Header) {
+        _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups, images: images))
         self.header = header()
     }
 
@@ -52,6 +54,9 @@ struct MediaBrowsingView<Header: View>: View {
                 }
             }
             .ignoresSafeArea()
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                viewModel.setScreen(scale: displayScale, size: size)
+            }
         }
         .environment(\.viewState, viewModel.viewState)
         .onExitCommand(perform: viewModel.canStepBack ? { viewModel.stepBack(focus: $focus) } : nil)

@@ -26,6 +26,33 @@ public final class MockJellyfinServer: Sendable {
         }
     }
 
+    /// An item in the server's libraries.
+    public struct Item: Sendable {
+        public var name: String
+        /// The Jellyfin item type, such as `Movie` or `Series`.
+        public var type: String
+        /// The tags of the item's images by Jellyfin image type, such as `Primary` or `Thumb`.
+        public var imageTags: [String: String]
+        public var backdropTags: [String]
+        /// The shape of its primary image, width over height.
+        public var primaryImageAspectRatio: Double?
+        public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+
+        public init(
+            name: String,
+            type: String = "Movie",
+            imageTags: [String: String] = [:],
+            backdropTags: [String] = [],
+            primaryImageAspectRatio: Double? = nil
+        ) {
+            self.name = name
+            self.type = type
+            self.imageTags = imageTags
+            self.backdropTags = backdropTags
+            self.primaryImageAspectRatio = primaryImageAspectRatio
+        }
+    }
+
     /// How the server responds.
     public enum Behavior: Sendable {
         /// Behaves like a working Jellyfin server.
@@ -51,8 +78,17 @@ public final class MockJellyfinServer: Sendable {
     public let splashscreenEnabled: Bool
     /// Whether the server hosts its web client, whose manifest lists the server's icons.
     public let hostsWebClient: Bool
+    /// The items in its libraries, most recently added first. A test can change them, as if someone
+    /// added something.
+    public var items: [Item] {
+        get { itemStore.withLock { $0 } }
+        set { itemStore.withLock { $0 = newValue } }
+    }
+    /// What it sends for any image it has. A real PNG unless a test says otherwise.
+    public let imageData: Data
 
     private let recorded = Mutex<[URLRequest]>([])
+    private let itemStore: Mutex<[Item]>
     /// Access tokens the server currently accepts, and whose they are.
     private let sessions = Mutex<[String: Account]>([:])
 
@@ -65,6 +101,8 @@ public final class MockJellyfinServer: Sendable {
         loginDisclaimer: String? = nil,
         splashscreenEnabled: Bool = false,
         hostsWebClient: Bool = true,
+        items: [Item] = [],
+        imageData: Data = MockJellyfinServer.samplePNG,
         behavior: Behavior = .jellyfin
     ) {
         self.url = url
@@ -76,6 +114,8 @@ public final class MockJellyfinServer: Sendable {
         self.loginDisclaimer = loginDisclaimer
         self.splashscreenEnabled = splashscreenEnabled
         self.hostsWebClient = hostsWebClient
+        itemStore = Mutex(items)
+        self.imageData = imageData
         self.behavior = behavior
         Self.registry.withLock { $0[Self.origin(of: url)] = WeakServer(server: self) }
     }
@@ -115,6 +155,7 @@ public final class MockJellyfinServer: Sendable {
         var status: Int
         var json: Any?
         var html: String?
+        var image: Data?
     }
 
     fileprivate func respond(to request: URLRequest) throws(URLError) -> Response {
@@ -158,9 +199,44 @@ public final class MockJellyfinServer: Sendable {
             guard let token = token(in: request), account(for: request) != nil else { return Response(status: 401) }
             sessions.withLock { _ = $0.removeValue(forKey: token) }
             return Response(status: 204)
+        case ("GET", "/Items/Latest"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems
+            let limit = query?.first { $0.name == "limit" }?.value.flatMap(Int.init)
+            return Response(status: 200, json: items.prefix(limit ?? items.count).map(itemJSON))
+        case ("GET", let path) where path.hasPrefix("/Items/"):
+            // Images need no sign-in, as on a real server.
+            return hasImage(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
         default:
             return Response(status: 404)
         }
+    }
+
+    private func itemJSON(_ item: Item) -> [String: Any] {
+        var json: [String: Any] = [
+            "Id": item.id,
+            "Name": item.name,
+            "Type": item.type,
+            "ServerId": id,
+            "ImageTags": item.imageTags,
+            "BackdropImageTags": item.backdropTags,
+        ]
+        json["PrimaryImageAspectRatio"] = item.primaryImageAspectRatio
+        return json
+    }
+
+    /// Whether `/Items/{id}/Images/{type}` or `/Items/{id}/Images/Backdrop/{index}` is an image the
+    /// server has.
+    private func hasImage(at path: String) -> Bool {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count >= 4, parts[2] == "Images", let item = items.first(where: { $0.id == parts[1] }) else {
+            return false
+        }
+        if parts[3] == "Backdrop" {
+            let index = parts.count > 4 ? Int(parts[4]) ?? -1 : 0
+            return item.backdropTags.indices.contains(index)
+        }
+        return item.imageTags[parts[3]] != nil
     }
 
     private var publicSystemInfo: [String: Any] {
@@ -256,7 +332,10 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
             let response = try server.respond(to: request)
             let body: Data
             let contentType: String
-            if let json = response.json {
+            if let image = response.image {
+                body = image
+                contentType = "image/png"
+            } else if let json = response.json {
                 body = (try? JSONSerialization.data(withJSONObject: json)) ?? Data()
                 contentType = "application/json"
             } else {

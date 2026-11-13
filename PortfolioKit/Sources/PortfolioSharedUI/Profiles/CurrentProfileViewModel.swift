@@ -30,4 +30,9 @@ public final class CurrentProfileViewModel {
     public func switchProfile() {
         sessionManager.closeProfile()
     }
+
+    /// The profile's Home, loading from their server.
+    public func makeHomeViewModel() -> HomeViewModel {
+        HomeViewModel(client: client, session: sessionManager.state.session)
+    }
 }
