@@ -125,8 +125,8 @@ public final class MediaCardViewModel {
     /// The backdrop, which has no title on it, since the card shows the title itself; else the
     /// thumbnail, else the poster.
     var landscapeArtworkKind: MediaImageKind {
-        if item.images[.backdrop()] != nil { return .backdrop() }
-        if item.images[.thumb] != nil { return .thumb }
+        if item.hasImage(.backdrop()) { return .backdrop() }
+        if item.hasImage(.thumb) { return .thumb }
         return .primary
     }
 

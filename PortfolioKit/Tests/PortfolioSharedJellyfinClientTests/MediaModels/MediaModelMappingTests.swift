@@ -27,34 +27,34 @@ struct MediaModelMappingTests {
         let item = try #require(MediaItem(Fixture.decode(BaseItemDto.self, from: "episode")))
 
         #expect(item.kind == .episode)
-        #expect(item.episode == EpisodeInfo(seriesName: "Andor", seriesID: "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a", seasonNumber: 1, episodeNumber: 5))
+        #expect(item.episode?.seriesName == "Andor")
+        #expect(item.episode?.seriesID == "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a")
+        #expect(item.episode?.seasonNumber == 1)
+        #expect(item.episode?.episodeNumber == 5)
         #expect(item.runtime == .seconds(3120))
     }
 
-    @Test func borrowsTheShowsArtworkThatAnEpisodeLacks() throws {
+    @Test func keepsAnEpisodesOwnArtworkAndTheShowsItShows() throws {
         let item = try #require(MediaItem(Fixture.decode(BaseItemDto.self, from: "episode")))
-        let show = "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a"
 
-        #expect(item.images == [
-            // Its own still.
-            .primary: "ep-1c2d",
-            .thumb: MediaImageReference(tag: "st-6a7b", ownerID: show),
-            .logo: MediaImageReference(tag: "sl-4e5f", ownerID: show),
-            .backdrop(): MediaImageReference(tag: "sb-0a1b", ownerID: show),
-            .backdrop(index: 1): MediaImageReference(tag: "sb-2c3d", ownerID: show),
+        // Its own still.
+        #expect(item.images == [.primary: "ep-1c2d"])
+        #expect(item.episode?.seriesImages == [
+            .thumb: "st-6a7b",
+            .logo: "sl-4e5f",
+            .backdrop(): "sb-0a1b",
+            .backdrop(index: 1): "sb-2c3d",
         ])
     }
 
-    @Test func keepsItsOwnArtworkOverItsShows() throws {
+    @Test func leavesOutArtworkAnEpisodeShowsFromItsSeason() throws {
         var dto = try Fixture.decode(BaseItemDto.self, from: "episode")
-        dto.imageTags = ["Primary": "ep-1c2d", "Logo": "own-logo"]
-        dto.backdropImageTags = ["own-backdrop"]
+        dto.parentBackdropItemID = "season"
 
         let item = try #require(MediaItem(dto))
 
-        #expect(item.images[.logo] == "own-logo")
-        #expect(item.images[.backdrop()] == "own-backdrop")
-        #expect(item.images[.backdrop(index: 1)] == nil)
+        #expect(item.episode?.seriesImages[.backdrop()] == nil)
+        #expect(item.episode?.seriesImages[.logo] == "sl-4e5f")
     }
 
     @Test func hasNoEpisodeDetailsForAMovie() throws {

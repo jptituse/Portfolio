@@ -51,10 +51,13 @@ struct JellyfinImageResolverTests {
         #expect((resolver.url(for: bare, kind, pixelSize: size) != nil) == expectsURL)
     }
 
-    @Test func pointsAtTheItemAnImageBelongsTo() throws {
-        let episode = MediaItem(id: "episode", name: "The Bridge", kind: .episode, images: [
-            .backdrop(): MediaImageReference(tag: "sb", ownerID: "show"),
-        ])
+    @Test func pointsAtTheShowForAnImageAnEpisodeShowsFromIt() throws {
+        let episode = MediaItem(
+            id: "episode",
+            name: "The Bridge",
+            kind: .episode,
+            episode: EpisodeInfo(seriesID: "show", seriesImages: [.backdrop(): "sb"])
+        )
 
         let url = try #require(resolver.url(for: episode, .backdrop(), pixelSize: size))
 

@@ -19,8 +19,8 @@ public struct JellyfinImageResolver: MediaImageResolver {
     }
 
     public func url(for item: MediaItem, _ kind: MediaImageKind, pixelSize: CGSize) -> URL? {
-        guard let image = item.images[kind],
-            var components = URLComponents(url: server.url.appending(path: Self.path(for: image.ownerID ?? item.id, kind)), resolvingAgainstBaseURL: false) else {
+        guard let image = item.image(kind),
+            var components = URLComponents(url: server.url.appending(path: Self.path(for: image.ownerID, kind)), resolvingAgainstBaseURL: false) else {
             return nil
         }
         let width = String(Int(pixelSize.width.rounded(.up)))

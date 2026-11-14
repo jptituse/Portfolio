@@ -1,7 +1,7 @@
 import Foundation
 
-/// Turns an item's image references (`MediaItem.images`) into URLs, sized for where each image is
-/// drawn. The server integration that produced the item provides one.
+/// Turns an item's images (`MediaItem.image(_:)`) into URLs, sized for where each image is drawn. The
+/// server integration that produced the item provides one.
 public protocol MediaImageResolver: Sendable {
     /// Where `item`'s `kind` image is, or nil if the item doesn't have one.
     ///

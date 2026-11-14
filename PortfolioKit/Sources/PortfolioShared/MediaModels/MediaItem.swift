@@ -22,9 +22,11 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
     /// Audience score on a 0–10 scale.
     public let communityRating: Double?
     public let genres: [String]
-    /// The item's images by kind, each the server's reference to it, which may be to another item's
-    /// image: an episode borrows its show's backdrop and logo.
-    public let images: [MediaImageKind: MediaImageReference]
+    /// The item's own images by kind, each the server's reference to it. They're opaque to the UI: the
+    /// server integration that produced the item resolves them into URLs (`MediaImageResolver`). A
+    /// reference changes whenever its image does, so it doubles as a cache key. An episode shows its
+    /// show's images where it has none of its own (`image(_:)`).
+    public let images: [MediaImageKind: String]
     /// The shape of the item's primary image, width over height, if the server knows it: a movie
     /// poster is about 0.67, an episode's still about 1.78.
     public let primaryImageAspectRatio: Double?
@@ -42,7 +44,7 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         officialRating: String? = nil,
         communityRating: Double? = nil,
         genres: [String] = [],
-        images: [MediaImageKind: MediaImageReference] = [:],
+        images: [MediaImageKind: String] = [:],
         primaryImageAspectRatio: Double? = nil,
         userData: UserData = UserData(),
         episode: EpisodeInfo? = nil
@@ -60,5 +62,21 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         self.primaryImageAspectRatio = primaryImageAspectRatio
         self.userData = userData
         self.episode = episode
+    }
+}
+
+extension MediaItem {
+    /// The item's `kind` image, and the item it belongs to: its own, or for an episode without one, its
+    /// show's. An episode with backdrops of its own shows only those.
+    public func image(_ kind: MediaImageKind) -> (ownerID: ID, tag: String)? {
+        if let tag = images[kind] { return (id, tag) }
+        guard let episode, let seriesID = episode.seriesID else { return nil }
+        if case .backdrop = kind, images[.backdrop()] != nil { return nil }
+        return episode.seriesImages[kind].map { (seriesID, $0) }
+    }
+
+    /// Whether the item shows a `kind` image, its own or its show's.
+    public func hasImage(_ kind: MediaImageKind) -> Bool {
+        image(kind) != nil
     }
 }
