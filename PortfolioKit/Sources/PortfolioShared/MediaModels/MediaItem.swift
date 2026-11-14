@@ -22,14 +22,15 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
     /// Audience score on a 0–10 scale.
     public let communityRating: Double?
     public let genres: [String]
-    /// The item's images by kind, each the server's reference to it. They're opaque to the UI: the
-    /// server integration that produced the item resolves them into URLs (`MediaImageResolver`). A
-    /// reference changes whenever its image does, so it doubles as a cache key.
-    public let images: [MediaImageKind: String]
+    /// The item's images by kind, each the server's reference to it, which may be to another item's
+    /// image: an episode borrows its show's backdrop and logo.
+    public let images: [MediaImageKind: MediaImageReference]
     /// The shape of the item's primary image, width over height, if the server knows it: a movie
     /// poster is about 0.67, an episode's still about 1.78.
     public let primaryImageAspectRatio: Double?
     public let userData: UserData
+    /// Where it sits in its show, if it's an episode.
+    public let episode: EpisodeInfo?
 
     public init(
         id: String,
@@ -41,9 +42,10 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         officialRating: String? = nil,
         communityRating: Double? = nil,
         genres: [String] = [],
-        images: [MediaImageKind: String] = [:],
+        images: [MediaImageKind: MediaImageReference] = [:],
         primaryImageAspectRatio: Double? = nil,
-        userData: UserData = UserData()
+        userData: UserData = UserData(),
+        episode: EpisodeInfo? = nil
     ) {
         self.id = id
         self.name = name
@@ -57,5 +59,6 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         self.images = images
         self.primaryImageAspectRatio = primaryImageAspectRatio
         self.userData = userData
+        self.episode = episode
     }
 }

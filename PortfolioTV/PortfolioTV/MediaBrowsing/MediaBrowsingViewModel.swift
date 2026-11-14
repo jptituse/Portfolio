@@ -24,11 +24,19 @@ final class MediaBrowsingViewModel {
     private(set) var viewState: ViewState = .root
     /// The group whose row is open as a carousel.
     private(set) var openGroup: RelatedMediaGroupViewModel?
+    /// The poster focus left in the row it was in before, where it lands going back to that row,
+    /// rather than on whichever poster is nearest: going down from the end of a long row to a short one
+    /// and back up returns to where it was. Focus moving on from the next row too forgets it.
+    private(set) var posterLeftBehind: BrowsingFocus?
 
     @ObservationIgnored private var focusedGroup: RelatedMediaGroupViewModel?
     @ObservationIgnored private var closingGroup: RelatedMediaGroupViewModel?
     /// Set while focus returns from the cards to a poster, when it's briefly on nothing at all.
     @ObservationIgnored private var isReturningFocusToPoster = false
+    /// Set when Back comes while the cards are still growing: they close once they've grown. Turning
+    /// round partway, a row of wide cards' pictures would jump, since they move one way opening and
+    /// another closing.
+    @ObservationIgnored private var closesOnceGrown = false
 
     /// - Parameter images: where the items' artwork comes from.
     init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil) {
@@ -50,6 +58,13 @@ final class MediaBrowsingViewModel {
         openGroup?.focusIsOnCards == true
     }
 
+    /// Where focus lands coming into `group`'s row from elsewhere: the poster it left there, if it has
+    /// just come from that row, and otherwise wherever tvOS puts it.
+    func posterToComeBack(to group: RelatedMediaGroupViewModel) -> BrowsingFocus? {
+        guard case .poster(_, let groupID) = posterLeftBehind, groupID == group.id else { return nil }
+        return posterLeftBehind
+    }
+
     /// Where focus falls back to once the cards give it up: the poster they closed on.
     var posterToReturnTo: BrowsingFocus? {
         guard let openGroup, let item = openGroup.highlightedItem else { return nil }
@@ -63,6 +78,8 @@ final class MediaBrowsingViewModel {
 
     func select(_ item: MediaItem, in group: RelatedMediaGroupViewModel) {
         guard openGroup == nil else { return }
+        // FIXME: Selecting something in Continue Watching should start playing it from where it was
+        // left, rather than opening its card, once there's playback (#15).
         group.willOpen(on: item.id)
         openGroup = group
     }
@@ -73,13 +90,20 @@ final class MediaBrowsingViewModel {
         withAnimation(MediaCardView.Metrics.labelFadeOut) { group.setLabelsShowing(false) }
         withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .logicallyComplete) {
             viewState = .preview
-            // From here on the poster frame means the resting one: closing shrinks back to it, and
-            // the poster lifts again on its own when it gets focus back.
-            group.startsLifted = false
         } completion: { [self] in
-            // The cards have grown, unless Menu sent them back meanwhile: now focus can move to the
-            // open one, and the details can appear.
             guard let item = group.highlightedItem, viewState == .preview else { return }
+            // Back came while they grew: they go straight back, onto the poster, which still has focus
+            // and so is still lifted.
+            if closesOnceGrown {
+                closesOnceGrown = false
+                close(group, on: item, focus: focus)
+                return
+            }
+            // From here on the poster frame means the resting one: closing shrinks back to it, and the
+            // poster lifts again on its own when it gets focus back. Not before: the cards are placed
+            // from it on every frame, and they'd start from the smaller, resting poster.
+            group.startsLifted = false
+            // The cards have grown: now focus can move to the open one, and the details can appear.
             // Only now does the poster under the open card widen, so closing lands on a wide poster.
             // Widening it first would switch the card to its landscape art at once, with no fade.
             group.extendHighlightedPoster()
@@ -94,7 +118,9 @@ final class MediaBrowsingViewModel {
         case .poster(let item, let groupID):
             guard openGroup == nil, let group = groups.first(where: { $0.id == groupID }) else { return }
             isReturningFocusToPoster = false
-            if focusedGroup !== group { focusedGroup?.focusLeft() }
+            if focusedGroup !== group {
+                leavePosters()
+            }
             focusedGroup = group
             group.posterFocused(item)
         case .platter(let item):
@@ -105,9 +131,19 @@ final class MediaBrowsingViewModel {
             break
         case nil:
             guard openGroup == nil, !isReturningFocusToPoster else { return }
-            focusedGroup?.focusLeft()
+            leavePosters()
             focusedGroup = nil
         }
+    }
+
+    /// Focus left the row it was in, for another row or for something else, such as Home's banner: it
+    /// remembers the poster it was on there.
+    private func leavePosters() {
+        guard let group = focusedGroup else { return }
+        if let item = group.highlightedItem {
+            posterLeftBehind = .poster(item, group: group.id)
+        }
+        group.focusLeft()
     }
 
     func expand(_ item: MediaItem.ID, focus: Focus) {
@@ -121,6 +157,11 @@ final class MediaBrowsingViewModel {
 
     func stepBack(focus: Focus) {
         guard let group = openGroup, let item = group.highlightedItem, viewState == .preview else { return }
+        // Still growing: they close once they've grown.
+        guard group.focusIsOnCards else {
+            closesOnceGrown = true
+            return
+        }
         if group.highlightedCard?.viewState == .root {
             withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange) { group.highlightedCard?.viewState = .preview }
             moveFocus(focus, to: .platter(item))
@@ -139,7 +180,9 @@ final class MediaBrowsingViewModel {
         closingGroup = group
         isReturningFocusToPoster = true
         withAnimation(MediaCardView.Metrics.labelFadeOut) { group.setLabelsShowing(false) }
-        withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .logicallyComplete) {
+        // Only once the cards are on their posters: removing them while they're still moving makes them
+        // jump onto the posters.
+        withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .removed) {
             viewState = .root
         } completion: { [self] in
             // The cards are back on their posters. The chosen poster gets focus before the cards

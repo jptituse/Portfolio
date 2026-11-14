@@ -19,8 +19,8 @@ public struct JellyfinImageResolver: MediaImageResolver {
     }
 
     public func url(for item: MediaItem, _ kind: MediaImageKind, pixelSize: CGSize) -> URL? {
-        guard let tag = item.images[kind],
-            var components = URLComponents(url: server.url.appending(path: Self.path(for: item, kind)), resolvingAgainstBaseURL: false) else {
+        guard let image = item.images[kind],
+            var components = URLComponents(url: server.url.appending(path: Self.path(for: image.ownerID ?? item.id, kind)), resolvingAgainstBaseURL: false) else {
             return nil
         }
         let width = String(Int(pixelSize.width.rounded(.up)))
@@ -31,12 +31,14 @@ public struct JellyfinImageResolver: MediaImageResolver {
         // Anything else covers its frame. The server never enlarges an image to fill.
         case .primary, .thumb, .backdrop: [URLQueryItem(name: "fillWidth", value: width), URLQueryItem(name: "fillHeight", value: height)]
         }
-        components.queryItems = [URLQueryItem(name: "tag", value: tag)] + size + [URLQueryItem(name: "quality", value: String(Self.quality))]
+        components.queryItems = [URLQueryItem(name: "tag", value: image.tag)] + size + [URLQueryItem(name: "quality", value: String(Self.quality))]
         return components.url
     }
 
-    private static func path(for item: MediaItem, _ kind: MediaImageKind) -> String {
-        let images = "Items/\(item.id)/Images"
+    /// Where the `kind` image of the item with `itemID` is: the item it belongs to, which may not be
+    /// the one showing it.
+    private static func path(for itemID: String, _ kind: MediaImageKind) -> String {
+        let images = "Items/\(itemID)/Images"
         return switch kind {
         case .primary: "\(images)/\(ImageType.primary.rawValue)"
         case .thumb: "\(images)/\(ImageType.thumb.rawValue)"

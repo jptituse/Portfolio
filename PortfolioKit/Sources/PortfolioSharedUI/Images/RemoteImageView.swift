@@ -11,6 +11,7 @@ public struct RemoteImageView<Content: View, Placeholder: View>: View {
     private let url: URL?
     private let alignment: Alignment
     private let crossFade: Duration
+    private let priority: ImagePriority
     private let content: (Image) -> Content
     private let placeholder: () -> Placeholder
 
@@ -20,16 +21,19 @@ public struct RemoteImageView<Content: View, Placeholder: View>: View {
     /// - Parameters:
     ///   - alignment: where `content` sits in the space offered, if it doesn't fill it.
     ///   - crossFade: how long an image that arrives later takes to fade in.
+    ///   - priority: how soon it's wanted, if it has to wait to download.
     public init(
         url: URL?,
         alignment: Alignment = .center,
         crossFade: Duration = RemoteImageViewModel.defaultCrossFade,
+        priority: ImagePriority = .normal,
         @ViewBuilder content: @escaping (Image) -> Content,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.url = url
         self.alignment = alignment
         self.crossFade = crossFade
+        self.priority = priority
         self.content = content
         self.placeholder = placeholder
     }
@@ -50,7 +54,7 @@ public struct RemoteImageView<Content: View, Placeholder: View>: View {
                     }
                 }
             }
-            .onChange(of: url, initial: true) { viewModel.request(url, crossFade: crossFade) }
+            .onChange(of: url, initial: true) { viewModel.request(url, crossFade: crossFade, priority: priority) }
     }
 
     /// How a layer appears: fading in, opacity alone, if it arrives on top of another image or of the

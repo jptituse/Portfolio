@@ -309,8 +309,9 @@ final class AppNavigationUITests: XCTestCase {
             XCTAssertTrue(fullScreenDetail.waitForExistence(timeout: 5), "Down didn't expand the platter in \(tab)")
             XCTAssertTrue(app.staticTexts["Sample Movie 2"].exists)
 
-            // Go deeper pushes plain detail views on top.
-            focus(app.buttons["Go deeper"], moving: .right, orElse: .down)
+            // Go deeper pushes plain detail views on top. Every platter shows the actions too, so this is
+            // the full-screen card's.
+            focus(fullScreenDetail.buttons["Go deeper"], moving: .right, orElse: .down)
             press(.select)
             XCTAssertTrue(app.staticTexts["Detail view 1"].waitForExistence(timeout: 5), "Couldn't go deeper in \(tab)")
 
@@ -383,7 +384,7 @@ final class AppNavigationUITests: XCTestCase {
         press(.select)
         XCTAssertTrue(fullScreenDetail.waitForExistence(timeout: 5), "Select didn't expand the platter")
         XCTAssertTrue(app.staticTexts["Sample Movie 1"].exists)
-        focus(app.buttons["Go deeper"], moving: .right, orElse: .down)
+        focus(fullScreenDetail.buttons["Go deeper"], moving: .right, orElse: .down)
         for _ in 0..<4 where !sidebarHasFocus() {
             press(.left)
         }
@@ -474,7 +475,8 @@ final class AppNavigationUITests: XCTestCase {
 
     /// Text only that tab's view shows, to confirm which tab is showing.
     private let tabMessages = [
-        "Home": "What's new in your libraries.",
+        // The sample session's server doesn't exist, so Home says so.
+        "Home": "Couldn't reach Preview Server. Check that it's still running, and try again.",
         "Search": "Search for movies, shows, episodes and people.",
         "Settings": "Your server, account and playback settings will appear here.",
     ]

@@ -4,8 +4,9 @@ import SwiftUI
 
 /// A related media group once it's been opened: its items as a carousel of platters, and full screen.
 /// Drawn above the whole browsing view, because the cards grow far beyond the row their posters sit
-/// in. Every card is one view that stays put while the layer changes; `MediaItemLayout` gives it a
-/// frame for each layer, so an animated change grows, shrinks and slides them all together.
+/// in. Every card is one view that stays put while the layer changes; `RelatedMediaGroupCarouselCardsView`
+/// places them all from one animated value, so they grow, shrink and slide together, each platter with
+/// its details and actions, which take focus once it's full screen.
 struct RelatedMediaGroupCarouselView: View {
     let viewModel: RelatedMediaGroupViewModel
     /// Where the carousel is, in global coordinates. It covers the whole browsing view.
@@ -16,40 +17,17 @@ struct RelatedMediaGroupCarouselView: View {
     @Environment(\.viewState) private var layer
 
     var body: some View {
-        let layout = viewModel.carouselLayout(in: globalFrame, layer: layer)
-        let isExpanded = viewModel.openCardIsExpanded
-        ZStack(alignment: .topLeading) {
-            ForEach(layout.drawnIndices, id: \.self) { index in
-                let item = viewModel.group.items[index]
-                let frame = layout.frame(of: index)
-                let artworkFrame = layout.artworkFrame(of: index).offsetBy(dx: -frame.minX, dy: -frame.minY)
-                Button {
-                    onExpand(item.id)
-                } label: {
-                    MediaCardView(viewModel: viewModel.card(for: item), artworkFrame: artworkFrame)
-                        .frame(width: frame.width, height: frame.height)
-                }
-                .buttonStyle(.borderless)
-                // Cards take focus once they've grown, and keep it while they shrink back, so focus
-                // doesn't move during the animation. The full-screen actions have it when expanded.
-                .disabled(!viewModel.focusIsOnCards || isExpanded)
-                .focused(focus, equals: .platter(item.id))
-                .onMoveCommand { direction in
-                    if direction == .down { onExpand(item.id) }
-                }
-                .position(x: frame.midX, y: frame.midY)
-                .zIndex(index == viewModel.highlightedIndex ? 1 : 0)
-                .accessibilityIdentifier("carousel.platter")
-                .accessibilityLabel(item.name)
-            }
-
-            if isExpanded {
-                MediaDetailActionsView(item: viewModel.openItem, focus: focus, focusValue: .detail(viewModel.openItem.id))
-                    .frame(width: globalFrame.width, height: globalFrame.height, alignment: .bottomLeading)
-                    .transition(.opacity)
-                    .zIndex(2)
-            }
-        }
+        // Changes to these come inside the animation that moves the cards, which animates them.
+        RelatedMediaGroupCarouselCardsView(
+            viewModel: viewModel,
+            globalFrame: globalFrame,
+            focus: focus,
+            onExpand: onExpand,
+            layer: layer,
+            progress: layer == .preview ? 1 : 0,
+            expansion: viewModel.openCardIsExpanded ? 1 : 0,
+            openPosition: CGFloat(viewModel.highlightedIndex)
+        )
         .frame(width: globalFrame.width, height: globalFrame.height, alignment: .topLeading)
         // Coming back from the sidebar lands on the open card (or its actions), not on whichever card
         // happens to be nearest the sidebar's edge: the sidebar overlaps the open platter.

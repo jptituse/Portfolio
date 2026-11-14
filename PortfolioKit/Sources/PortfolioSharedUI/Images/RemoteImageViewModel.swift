@@ -13,6 +13,8 @@ public final class RemoteImageViewModel {
     /// An image to draw.
     public struct Layer: Identifiable {
         public let image: CGImage
+        /// Keeps the image in memory while it's drawn, so other views can show it at once too.
+        let lease: ImageLease?
         public var id: ObjectIdentifier { ObjectIdentifier(image) }
     }
 
@@ -44,7 +46,8 @@ public final class RemoteImageViewModel {
     /// memory, so a view showing an image the app already has never starts on its placeholder.
     public func layers(for url: URL?) -> [Layer] {
         if layers.isEmpty, let cached = url.flatMap(pipeline.cachedImage) {
-            return [Layer(image: cached)]
+            // Only until the request for it, which follows at once, holds it.
+            return [Layer(image: cached, lease: nil)]
         }
         return layers
     }
@@ -55,7 +58,7 @@ public final class RemoteImageViewModel {
     ///
     /// - Parameter crossFade: how long an image that arrives later takes to fade in, so the one beneath
     ///   stays until it's covered.
-    public func request(_ url: URL?, crossFade: Duration = defaultCrossFade) {
+    public func request(_ url: URL?, crossFade: Duration = defaultCrossFade, priority: ImagePriority = .normal) {
         if url == requestedURL, url == shownURL || loading != nil { return }
         loading?.cancel()
         loading = nil
@@ -80,7 +83,7 @@ public final class RemoteImageViewModel {
                     setLoading(false)
                 }
             }
-            guard let loaded = try? await pipeline.image(for: url), !Task.isCancelled else { return }
+            guard let loaded = try? await pipeline.image(for: url, priority: priority), !Task.isCancelled else { return }
             display(loaded, url: url, fades: true, crossFade: crossFade)
         }
     }
@@ -106,7 +109,7 @@ public final class RemoteImageViewModel {
             layers = []
             return
         }
-        let layer = Layer(image: newImage)
+        let layer = Layer(image: newImage, lease: url.map { pipeline.lease(newImage, for: $0) })
         guard fades else {
             layers = [layer]
             return

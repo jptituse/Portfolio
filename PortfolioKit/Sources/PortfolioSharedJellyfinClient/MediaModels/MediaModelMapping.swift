@@ -12,15 +12,33 @@ extension Duration {
     }
 }
 
-/// An item's images by kind. Jellyfin lists their tags by image type, and its backdrops' tags apart,
-/// in order.
-func mediaImages(tags: [String: String]?, backdrops: [String]?) -> [MediaImageKind: String] {
-    var images: [MediaImageKind: String] = [:]
+/// An item's own images by kind. Jellyfin lists their tags by image type, and its backdrops' tags
+/// apart, in order.
+func mediaImages(tags: [String: String]?, backdrops: [String]?) -> [MediaImageKind: MediaImageReference] {
+    var images: [MediaImageKind: MediaImageReference] = [:]
     for (kind, type) in [(MediaImageKind.primary, ImageType.primary), (.thumb, .thumb), (.logo, .logo)] {
-        images[kind] = tags?[type.rawValue]
+        images[kind] = tags?[type.rawValue].map { MediaImageReference(tag: $0) }
     }
     for (index, tag) in (backdrops ?? []).enumerated() {
-        images[.backdrop(index: index)] = tag
+        images[.backdrop(index: index)] = MediaImageReference(tag: tag)
+    }
+    return images
+}
+
+/// An item's images, its own and, for those it lacks, the ones Jellyfin says it borrows: an episode
+/// or season shows its show's thumbnail, backdrops and logo.
+func mediaImages(of dto: BaseItemDto) -> [MediaImageKind: MediaImageReference] {
+    var images = mediaImages(tags: dto.imageTags, backdrops: dto.backdropImageTags)
+    if images[.thumb] == nil, let owner = dto.parentThumbItemID, let tag = dto.parentThumbImageTag {
+        images[.thumb] = MediaImageReference(tag: tag, ownerID: owner)
+    }
+    if images[.logo] == nil, let owner = dto.parentLogoItemID, let tag = dto.parentLogoImageTag {
+        images[.logo] = MediaImageReference(tag: tag, ownerID: owner)
+    }
+    if images[.backdrop()] == nil, let owner = dto.parentBackdropItemID {
+        for (index, tag) in (dto.parentBackdropImageTags ?? []).enumerated() {
+            images[.backdrop(index: index)] = MediaImageReference(tag: tag, ownerID: owner)
+        }
     }
     return images
 }
@@ -64,9 +82,12 @@ extension MediaItem {
             officialRating: dto.officialRating,
             communityRating: dto.communityRating.map(Double.init),
             genres: dto.genres ?? [],
-            images: mediaImages(tags: dto.imageTags, backdrops: dto.backdropImageTags),
+            images: mediaImages(of: dto),
             primaryImageAspectRatio: dto.primaryImageAspectRatio,
-            userData: UserData(dto.userData)
+            userData: UserData(dto.userData),
+            episode: dto.type == .episode
+                ? EpisodeInfo(seriesName: dto.seriesName, seriesID: dto.seriesID, seasonNumber: dto.parentIndexNumber, episodeNumber: dto.indexNumber)
+                : nil
         )
     }
 }

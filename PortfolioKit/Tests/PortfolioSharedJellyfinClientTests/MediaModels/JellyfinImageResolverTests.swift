@@ -51,6 +51,17 @@ struct JellyfinImageResolverTests {
         #expect((resolver.url(for: bare, kind, pixelSize: size) != nil) == expectsURL)
     }
 
+    @Test func pointsAtTheItemAnImageBelongsTo() throws {
+        let episode = MediaItem(id: "episode", name: "The Bridge", kind: .episode, images: [
+            .backdrop(): MediaImageReference(tag: "sb", ownerID: "show"),
+        ])
+
+        let url = try #require(resolver.url(for: episode, .backdrop(), pixelSize: size))
+
+        #expect(url.path() == "/jellyfin/Items/show/Images/Backdrop/0")
+        #expect(url.query()?.contains("tag=sb") == true)
+    }
+
     @Test func pointsAtAServerWithoutAPath() throws {
         let resolver = JellyfinImageResolver(server: .sample(url: "http://192.168.1.10:8096"))
         let url = try #require(resolver.url(for: item, .primary, pixelSize: size))

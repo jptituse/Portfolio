@@ -19,9 +19,9 @@ public struct Library: Hashable, Sendable, Identifiable {
     public let name: String
     public let kind: Kind
     /// The library's images by kind, opaque like `MediaItem.images`.
-    public let images: [MediaImageKind: String]
+    public let images: [MediaImageKind: MediaImageReference]
 
-    public init(id: String, name: String, kind: Kind, images: [MediaImageKind: String] = [:]) {
+    public init(id: String, name: String, kind: Kind, images: [MediaImageKind: MediaImageReference] = [:]) {
         self.id = id
         self.name = name
         self.kind = kind

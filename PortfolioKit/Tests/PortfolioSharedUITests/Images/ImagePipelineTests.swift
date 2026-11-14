@@ -34,6 +34,34 @@ struct ImagePipelineTests {
         #expect(imageRequests == 1)
     }
 
+    @Test func keepsAnImageAViewShowsInMemoryWhenMemoryRunsShort() async throws {
+        let image = try await pipeline.image(for: posterURL)
+        let lease = pipeline.lease(image, for: posterURL)
+
+        pipeline.removeUnseenImagesFromMemory()
+
+        #expect(pipeline.cachedImage(for: posterURL) === image)
+        #expect(try await pipeline.image(for: posterURL) === image)
+        #expect(imageRequests == 1)
+        withExtendedLifetime(lease) {}
+    }
+
+    @Test func letsAnImageGoOnceNoViewShowsIt() async throws {
+        let image = try await pipeline.image(for: posterURL)
+        do {
+            let first = pipeline.lease(image, for: posterURL)
+            let second = pipeline.lease(image, for: posterURL)
+            withExtendedLifetime(first) {}
+            pipeline.removeUnseenImagesFromMemory()
+            #expect(pipeline.cachedImage(for: posterURL) === image, "One view still shows it")
+            withExtendedLifetime(second) {}
+        }
+
+        pipeline.removeUnseenImagesFromMemory()
+
+        #expect(pipeline.cachedImage(for: posterURL) == nil)
+    }
+
     @Test func downloadsOnceForEveryoneAskingAtOnce() async throws {
         async let first = pipeline.image(for: posterURL)
         async let second = pipeline.image(for: posterURL)

@@ -7,7 +7,8 @@ import SwiftUI
 /// focus, one card per item, and where each poster is.
 ///
 /// Focus staying on a poster widens it to show its landscape thumbnail. The highlighted poster stays
-/// wide while the row is open, so closing lands on the wide poster.
+/// wide while the row is open, so closing lands on the wide poster. A row of items in progress
+/// (Continue Watching) has wide cards from the start, which show how far along each item is.
 @MainActor
 @Observable
 final class RelatedMediaGroupViewModel: Identifiable {
@@ -51,10 +52,17 @@ final class RelatedMediaGroupViewModel: Identifiable {
 
     var id: RelatedMediaGroup.ID { group.id }
 
+    /// Whether this is a row of items in progress, whose cards are wide from the start.
+    var isInProgress: Bool { group.style == .inProgress }
+
     /// The item's card. A poster and the card that grows out of it share one, so they always agree.
     func card(for item: MediaItem) -> MediaCardViewModel {
         if let card = cards[item.id] { return card }
         let card = MediaCardViewModel(item: item, images: images)
+        if isInProgress {
+            card.isExtended = true
+            card.showsProgress = true
+        }
         cards[item.id] = card
         setArtworkSizes(of: card)
         return card
@@ -64,13 +72,14 @@ final class RelatedMediaGroupViewModel: Identifiable {
     /// as wide as `extendedPosterWidth`. A poster that's wider already keeps its width.
     func posterSize(of card: MediaCardViewModel) -> CGSize {
         typealias Metrics = RelatedMediaGroupPosterView.Metrics
+        if isInProgress { return Metrics.inProgressCardSize }
         let width = Metrics.posterSize.height * card.posterAspectRatio
         return CGSize(width: card.isExtended ? max(width, Metrics.extendedPosterWidth) : width, height: Metrics.posterSize.height)
     }
 
     /// The room a row adds at its end before the highlighted poster widens: as much as it grows.
     var extensionRoom: CGFloat {
-        guard let card = highlightedCard else { return 0 }
+        guard !isInProgress, let card = highlightedCard else { return 0 }
         return max(0, RelatedMediaGroupPosterView.Metrics.extendedPosterWidth - Self.restingWidth(of: card))
     }
 
@@ -104,7 +113,7 @@ final class RelatedMediaGroupViewModel: Identifiable {
     func posterFocused(_ item: MediaItem.ID) {
         idleTimer?.cancel()
         withAnimation(RelatedMediaGroupPosterView.Metrics.extend) { moveHighlight(to: item) }
-        if highlightedCard?.isExtended != true { startIdleTimer(for: item) }
+        if !isInProgress, highlightedCard?.isExtended != true { startIdleTimer(for: item) }
         warmLandscapeArtwork(around: item)
     }
 
@@ -126,9 +135,14 @@ final class RelatedMediaGroupViewModel: Identifiable {
     /// logo at most: the screen, and the details of a platter or full screen.
     private func setArtworkSizes(of card: MediaCardViewModel) {
         guard let screen else { return }
-        let posterSize = CGSize(width: Self.restingWidth(of: card), height: RelatedMediaGroupPosterView.Metrics.posterSize.height)
+        let posterSize = isInProgress
+            ? RelatedMediaGroupPosterView.Metrics.inProgressCardSize
+            : CGSize(width: Self.restingWidth(of: card), height: RelatedMediaGroupPosterView.Metrics.posterSize.height)
         card.posterArtworkSize = RemoteImageViewModel.requestSize(for: posterSize, scale: screen.scale)
         card.landscapeArtworkSize = RemoteImageViewModel.requestSize(for: screen.size, scale: screen.scale)
+        // Every card in a row of wide ones shows its landscape art at rest, so it's fetched at the
+        // card's size, and at the screen's only for the few near focus, which may grow.
+        card.restingLandscapeArtworkSize = isInProgress ? RemoteImageViewModel.requestSize(for: posterSize, scale: screen.scale) : nil
         card.logoArtworkSize = RemoteImageViewModel.requestSize(for: MediaCardView.Metrics.detailsLogoSize, scale: screen.scale)
     }
 
@@ -147,7 +161,7 @@ final class RelatedMediaGroupViewModel: Identifiable {
 
     /// Widens the highlighted poster while it's hidden under its card, so closing lands on it.
     func extendHighlightedPoster() {
-        highlightedCard?.isExtended = true
+        if highlightedCard?.isExtended != true { highlightedCard?.isExtended = true }
     }
 
     /// Makes another platter the highlighted card, moving the wide poster along with it.
@@ -182,11 +196,11 @@ final class RelatedMediaGroupViewModel: Identifiable {
             currentIndex: highlightedIndex,
             posterFrames: posterFrames(relativeTo: globalFrame.origin),
             liftedIndex: startsLifted ? highlightedIndex : nil,
-            // tvOS enlarges a wide poster less, in proportion, than a narrow one.
-            liftScale: posterSize(of: openCard).width >= RelatedMediaGroupPosterView.Metrics.extendedPosterWidth
-                ? Metrics.extendedPosterLiftScale : Metrics.posterLiftScale,
+            // tvOS enlarges a wider card less, in proportion.
+            liftScale: Metrics.liftScale(forWidth: posterSize(of: openCard).width),
             layer: layer,
-            openCardState: openCard.viewState
+            openCardState: openCard.viewState,
+            showsArtworkOnPosters: isInProgress
         )
     }
 
@@ -225,7 +239,7 @@ final class RelatedMediaGroupViewModel: Identifiable {
         guard item != highlightedItem else { return }
         isMakingRoomToExtend = false
         highlightedCard?.isFocused = false
-        highlightedCard?.isExtended = false
+        if !isInProgress { highlightedCard?.isExtended = false }
         highlightedItem = item
         if let item, let target = group.items.first(where: { $0.id == item }) {
             card(for: target).isFocused = true
