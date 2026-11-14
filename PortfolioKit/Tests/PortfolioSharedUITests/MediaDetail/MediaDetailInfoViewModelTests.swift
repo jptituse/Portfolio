@@ -24,6 +24,22 @@ struct MediaDetailInfoViewModelTests {
         #expect(viewModel.overview == "What happens in it.")
     }
 
+    @Test func titlesAnEpisodeByItsShowAndPutsItsNumberAndNameFirst() {
+        let viewModel = MediaDetailInfoViewModel(
+            item: MediaItem(
+                id: "1",
+                name: "The Bridge",
+                kind: .episode,
+                productionYear: 2022,
+                runtime: .seconds(3120),
+                episode: EpisodeInfo(seriesName: "Andor", seasonNumber: 1, episodeNumber: 5)
+            )
+        )
+
+        #expect(viewModel.title == "Andor")
+        #expect(viewModel.metadata == "S1E5 · The Bridge · 2022 · 52m")
+    }
+
     @Test func leavesOutWhatTheItemDoesNotHave() {
         let viewModel = MediaDetailInfoViewModel(
             item: MediaItem(id: "1", name: "A Movie", kind: .movie, productionYear: 2024, genres: ["Drama"])

@@ -34,9 +34,16 @@ public final class MediaCardViewModel {
     public var logoArtworkSize: CGSize? {
         didSet { detailInfo.logoURL = logoArtworkURL }
     }
+    /// The size the landscape art is fetched at, in pixels, while the card isn't warm, for a card that
+    /// shows it at rest: a wide card in a row of them. Without one, it's always fetched at
+    /// `landscapeArtworkSize`. Warm cards, which may grow, fetch it at that size, so a row of wide cards
+    /// keeps only a few screen-sized images in memory.
+    public var restingLandscapeArtworkSize: CGSize?
     /// Whether the landscape art loads ahead of time, so it's ready for the card to fade into as it
     /// moves: for the highlighted card and those beside it.
     public var isWarm = false
+    /// Whether the card shows how far along the item is, as in Continue Watching.
+    public var showsProgress = false
 
     @ObservationIgnored private let images: (any MediaImageResolver)?
 
@@ -59,18 +66,47 @@ public final class MediaCardViewModel {
 
     /// Where the item's logo is, or nil if it has none, so the title shows instead, or its size isn't
     /// known yet.
-    var logoArtworkURL: URL? {
+    public var logoArtworkURL: URL? {
         logoArtworkSize.flatMap { images?.url(for: item, .logo, pixelSize: $0) }
     }
 
     /// Where the poster is, or nil if the item has none or its size isn't known yet.
-    var posterArtworkURL: URL? {
+    public var posterArtworkURL: URL? {
         posterArtworkSize.flatMap { images?.url(for: item, .primary, pixelSize: $0) }
     }
 
     /// Where the landscape art is, or nil if the item has none or its size isn't known yet.
-    var landscapeArtworkURL: URL? {
-        landscapeArtworkSize.flatMap { images?.url(for: item, landscapeArtworkKind, pixelSize: $0) }
+    public var landscapeArtworkURL: URL? {
+        let size = (isWarm ? nil : restingLandscapeArtworkSize) ?? landscapeArtworkSize
+        return size.flatMap { images?.url(for: item, landscapeArtworkKind, pixelSize: $0) }
+    }
+
+    // MARK: Progress
+
+    /// How far into the item the user is, from 0 to 1, or nil if they haven't started it.
+    var progress: Double? {
+        guard let runtime = item.runtime, runtime > .zero, item.userData.playbackPosition > .zero else { return nil }
+        return min(1, item.userData.playbackPosition / runtime)
+    }
+
+    /// "S1E5" for an episode, else nil.
+    var episodeLabel: String? {
+        item.episode?.shortLabel
+    }
+
+    /// "23m left", or "1h 12m left", or nil if the item's length isn't known.
+    var timeLeftLabel: String? {
+        guard let runtime = item.runtime, runtime > .zero else { return nil }
+        let left = max(.zero, runtime - item.userData.playbackPosition)
+        // Rounded up, so nearly done still reads as a minute left rather than none.
+        let minutes = Int((left / .seconds(60)).rounded(.up))
+        let formatted = Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+        return String(localized: "\(formatted) left")
+    }
+
+    /// Whether the progress shows: on a poster in a row that shows it, while the labels are showing.
+    func showsProgressIndicator(in layer: ViewState) -> Bool {
+        showsProgress && form(in: layer) == .poster && showsLabels
     }
 
     /// Whether the landscape art covers the poster in a hierarchy at `layer`: once the poster widens,
@@ -113,6 +149,13 @@ public final class MediaCardViewModel {
     /// are showing.
     func showsDetails(in layer: ViewState) -> Bool {
         form(in: layer).showsDetails && showsLabels
+    }
+
+    /// How much the card's actions (Play and the like, drawn above it) show: with its details, as darkened
+    /// as the card is on a platter that isn't highlighted.
+    public func actionsOpacity(in layer: ViewState) -> Double {
+        guard showsDetails(in: layer) else { return 0 }
+        return isDimmed(in: layer) ? 1 - MediaCardView.Metrics.dimmedOpacity : 1
     }
 
     /// Whether the card is darkened: in a preview, the platters that aren't highlighted are.

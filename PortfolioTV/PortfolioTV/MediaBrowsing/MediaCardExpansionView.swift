@@ -23,6 +23,8 @@ struct MediaCardExpansionView<Focus: Hashable>: View {
 
             if viewModel.holdsFocus {
                 MediaDetailActionsView(item: card.item, focus: focus, focusValue: actionsFocus)
+                    .padding(.leading, MediaCardView.Metrics.fullScreenDetailsLeadingPadding)
+                    .padding(.bottom, MediaCardView.Metrics.detailsBottomMargin)
                     .frame(width: globalFrame.width, height: globalFrame.height, alignment: .bottomLeading)
                     // They fade out with the details as the card starts to shrink, keeping focus until
                     // the poster takes it back.

@@ -29,7 +29,7 @@ struct MediaCardExpansionViewModelTests {
         let lifted = expansion.frame(in: screen)
         #expect(lifted.midX == poster.midX)
         #expect(lifted.midY == poster.midY)
-        #expect(abs(lifted.width - poster.width * RelatedMediaGroupCarouselView.Metrics.posterLiftScale) < 0.001)
+        #expect(abs(lifted.width - poster.width * RelatedMediaGroupCarouselView.Metrics.liftScale(forWidth: poster.width)) < 0.001)
     }
 
     @Test func growsStraightToFullScreenSkippingThePlatter() {

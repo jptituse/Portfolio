@@ -14,8 +14,8 @@ struct RelatedMediaGroupPosterView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.titleSpacing) {
             Text(viewModel.group.title)
-                .font(.title3)
-                .bold()
+                .font(.callout)
+                .fontWeight(.semibold)
             ScrollViewReader { scroller in
                 ScrollView(.horizontal) {
                     // Not lazy: a lazy stack estimates where the posters it isn't drawing are from the ones
@@ -43,6 +43,9 @@ struct RelatedMediaGroupPosterView: View {
                 }
             }
         }
+        // Up and Down always reach the row, focusing its nearest poster, even where none is directly
+        // above or below.
+        .focusSection()
         // Posters stay posters, whichever layer the browsing view is in.
         .environment(\.viewState, .root)
     }
@@ -61,7 +64,7 @@ struct RelatedMediaGroupPosterView: View {
                     viewModel.posterMoved(item.id, to: frame)
                 }
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(MediaCardButtonStyle())
         .opacity(isOpen ? 0 : 1)
         .focused(focus, equals: .poster(item.id, group: viewModel.id))
         .accessibilityIdentifier("browse.poster")

@@ -77,10 +77,8 @@ extension LibrarySidebarView {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Metrics.rowHorizontalPadding)
                 .padding(.vertical, Metrics.rowVerticalPadding)
-                .background {
-                    RoundedRectangle(cornerRadius: Metrics.platterCornerRadius)
-                        .fill(.white.opacity(isShowing ? Metrics.platterOpacity : 0))
-                }
+                // Glass, only under the item showing.
+                .glassEffect(isShowing ? .regular : .identity, in: RoundedRectangle(cornerRadius: Metrics.platterCornerRadius))
                 .scaleEffect(isPressed ? 1 : isFocused ? Metrics.focusedScale : 1)
                 .animation(.easeOut(duration: Metrics.focusAnimationDuration), value: isFocused)
         }
@@ -91,8 +89,6 @@ extension LibrarySidebarView {
         static let rowHorizontalPadding: CGFloat = 20
         static let rowVerticalPadding: CGFloat = 12
         static let platterCornerRadius: CGFloat = 16
-        /// The gray of the system's resting platters: white at this opacity over the background.
-        static let platterOpacity = 0.1
         static let focusedScale: CGFloat = 1.06
         static let focusAnimationDuration = 0.15
         static let titleSpacing: CGFloat = 16

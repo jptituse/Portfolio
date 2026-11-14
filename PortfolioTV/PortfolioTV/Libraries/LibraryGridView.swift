@@ -63,7 +63,7 @@ struct LibraryGridView: View {
                                 expansion.posterMoved(item.id, to: frame)
                             }
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(MediaCardButtonStyle())
                     // Hidden under its card while that's open.
                     .opacity(expansion.item == item.id ? 0 : 1)
                     .focused(focus, equals: .poster(item.id))

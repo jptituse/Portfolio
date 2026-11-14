@@ -288,7 +288,7 @@ public final class LibraryViewModel {
 
     private func warm(_ url: URL?) {
         guard let url, pipeline.cachedImage(for: url) == nil else { return }
-        Task { [pipeline] in _ = try? await pipeline.image(for: url) }
+        Task { [pipeline] in _ = try? await pipeline.image(for: url, priority: .low) }
     }
 
     // MARK: Cards

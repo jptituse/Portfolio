@@ -71,4 +71,67 @@ struct JellyfinServerClientMediaTests {
 
         await #expect(throws: JellyfinError.unreachable) { try await client.recentlyAdded(for: unreachable) }
     }
+
+    // MARK: Home
+
+    func query(of request: URLRequest?) throws -> [URLQueryItem] {
+        try #require(request?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems)
+    }
+
+    @Test func listsTheLatestOfOneLibrary() async throws {
+        let movies = MockJellyfinServer.Library(name: "Movies", collectionType: "movies")
+        let mock = MockJellyfinServer(libraries: [movies], items: [
+            .init(name: "Arrival", libraryID: movies.id),
+            .init(name: "Severance", type: "Series", libraryID: "shows"),
+        ])
+        let session = try await signIn(to: mock)
+
+        let items = try await client.recentlyAdded(for: session, in: movies.id)
+
+        #expect(items.map(\.name) == ["Arrival"])
+        #expect(try query(of: mock.requests.last).contains(URLQueryItem(name: "parentId", value: movies.id)))
+    }
+
+    @Test func listsWhatsPartlyWatchedWithHowFar() async throws {
+        var arrival = MockJellyfinServer.Item(name: "Arrival")
+        arrival.runtimeMinutes = 120
+        arrival.watchedMinutes = 30
+        let mock = MockJellyfinServer(items: [arrival, .init(name: "Dune")])
+        let session = try await signIn(to: mock)
+
+        let items = try await client.resumeItems(for: session)
+
+        #expect(items.map(\.name) == ["Arrival"])
+        #expect(items.first?.userData.playbackPosition == .seconds(30 * 60))
+        #expect(items.first?.runtime == .seconds(120 * 60))
+        let request = mock.requests.last
+        #expect(request?.url?.path == "/UserItems/Resume")
+        #expect(try query(of: request).contains(URLQueryItem(name: "mediaTypes", value: "Video")))
+    }
+
+    @Test func listsTheNextEpisodesLeavingOutStartedOnes() async throws {
+        var episode = MockJellyfinServer.Item(name: "The Bridge", type: "Episode")
+        episode.isNextUp = true
+        episode.seriesName = "Andor"
+        episode.seasonNumber = 1
+        episode.episodeNumber = 5
+        let mock = MockJellyfinServer(items: [episode, .init(name: "Dune")])
+        let session = try await signIn(to: mock)
+
+        let items = try await client.nextUp(for: session)
+
+        #expect(items.map(\.name) == ["The Bridge"])
+        #expect(items.first?.episode?.seasonNumber == 1)
+        #expect(items.first?.episode?.episodeNumber == 5)
+        let request = mock.requests.last
+        #expect(request?.url?.path == "/Shows/NextUp")
+        #expect(try query(of: request).contains(URLQueryItem(name: "enableResumable", value: "false")))
+    }
+
+    @Test func readsWhichLibrariesTheUserLeftOutOfTheirLatest() async throws {
+        let mock = MockJellyfinServer(librariesLeftOutOfLatest: ["kids", "4k"])
+        let session = try await signIn(to: mock)
+
+        #expect(try await client.librariesLeftOutOfLatest(for: session) == ["kids", "4k"])
+    }
 }

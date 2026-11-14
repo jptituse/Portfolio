@@ -39,6 +39,21 @@ public final class MockJellyfinServer: Sendable {
         /// The library it's in, if any.
         public var libraryID: String?
         public var genres: [String]
+        public var runtimeMinutes: Int?
+        /// How far the user has watched it, in minutes. Anything above zero puts it among the items to
+        /// resume.
+        public var watchedMinutes = 0
+        /// Whether it's the next episode of a show the user is watching.
+        public var isNextUp = false
+        public var seriesName: String?
+        public var seriesID: String?
+        public var seasonNumber: Int?
+        public var episodeNumber: Int?
+        /// The show's backdrops and logo, which an episode shows as its own.
+        public var parentBackdropItemID: String?
+        public var parentBackdropTags: [String] = []
+        public var parentLogoItemID: String?
+        public var parentLogoTag: String?
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -108,6 +123,8 @@ public final class MockJellyfinServer: Sendable {
     }
     /// What it sends for any image it has. A real PNG unless a test says otherwise.
     public let imageData: Data
+    /// The libraries the user has left out of their latest items.
+    public let librariesLeftOutOfLatest: [String]
 
     private let recorded = Mutex<[URLRequest]>([])
     private let itemStore: Mutex<[Item]>
@@ -125,6 +142,7 @@ public final class MockJellyfinServer: Sendable {
         hostsWebClient: Bool = true,
         libraries: [Library] = [],
         items: [Item] = [],
+        librariesLeftOutOfLatest: [String] = [],
         imageData: Data = MockJellyfinServer.samplePNG,
         behavior: Behavior = .jellyfin
     ) {
@@ -139,6 +157,7 @@ public final class MockJellyfinServer: Sendable {
         self.hostsWebClient = hostsWebClient
         self.libraries = libraries
         itemStore = Mutex(items)
+        self.librariesLeftOutOfLatest = librariesLeftOutOfLatest
         self.imageData = imageData
         self.behavior = behavior
         Self.registry.withLock { $0[Self.origin(of: url)] = WeakServer(server: self) }
@@ -227,7 +246,19 @@ public final class MockJellyfinServer: Sendable {
             guard account(for: request) != nil else { return Response(status: 401) }
             let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems
             let limit = query?.first { $0.name == "limit" }?.value.flatMap(Int.init)
-            return Response(status: 200, json: items.prefix(limit ?? items.count).map(itemJSON))
+            let parent = query?.first { $0.name == "parentId" }?.value
+            let latest = items.filter { item in
+                parent.map { item.libraryID == $0 } ?? !librariesLeftOutOfLatest.contains { item.libraryID == $0 }
+            }
+            return Response(status: 200, json: latest.prefix(limit ?? latest.count).map(itemJSON))
+        case ("GET", "/UserItems/Resume"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let resume = items.filter { $0.watchedMinutes > 0 }
+            return Response(status: 200, json: ["Items": resume.map(itemJSON), "TotalRecordCount": resume.count])
+        case ("GET", "/Shows/NextUp"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let nextUp = items.filter(\.isNextUp)
+            return Response(status: 200, json: ["Items": nextUp.map(itemJSON), "TotalRecordCount": nextUp.count])
         case ("GET", "/UserViews"):
             guard account(for: request) != nil else { return Response(status: 401) }
             return Response(status: 200, json: ["Items": libraries.map(libraryJSON), "TotalRecordCount": libraries.count])
@@ -297,8 +328,26 @@ public final class MockJellyfinServer: Sendable {
             "BackdropImageTags": item.backdropTags,
         ]
         json["PrimaryImageAspectRatio"] = item.primaryImageAspectRatio
+        json["RunTimeTicks"] = item.runtimeMinutes.map { $0 * Self.ticksPerMinute }
+        json["UserData"] = [
+            "PlaybackPositionTicks": item.watchedMinutes * Self.ticksPerMinute,
+            "Played": false,
+            "Key": item.id,
+            "ItemId": item.id,
+        ]
+        json["SeriesName"] = item.seriesName
+        json["SeriesId"] = item.seriesID
+        json["ParentIndexNumber"] = item.seasonNumber
+        json["IndexNumber"] = item.episodeNumber
+        json["ParentBackdropItemId"] = item.parentBackdropItemID
+        json["ParentBackdropImageTags"] = item.parentBackdropTags.isEmpty ? nil : item.parentBackdropTags
+        json["ParentLogoItemId"] = item.parentLogoItemID
+        json["ParentLogoImageTag"] = item.parentLogoTag
         return json
     }
+
+    /// Jellyfin measures time in ticks of 100 nanoseconds.
+    static let ticksPerMinute = 600_000_000
 
     /// Whether `/Items/{id}/Images/{type}` or `/Items/{id}/Images/Backdrop/{index}` is an image the
     /// server has.
@@ -354,6 +403,7 @@ public final class MockJellyfinServer: Sendable {
             "HasConfiguredPassword": !account.password.isEmpty,
         ]
         json["PrimaryImageTag"] = account.imageTag
+        json["Configuration"] = ["LatestItemsExcludes": librariesLeftOutOfLatest]
         return json
     }
 

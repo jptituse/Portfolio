@@ -2,12 +2,17 @@ import Observation
 import PortfolioShared
 import PortfolioSharedJellyfinClient
 
-/// The open profile's Home: what was added to their libraries most recently, with its artwork. It loads
-/// again each time it's shown, so it keeps up with the server.
+/// The open profile's Home: a banner of what was added most recently, then Continue Watching (what
+/// they're partway through, and the next episode of each show they're watching), then the latest of
+/// each library. It loads again each time it's shown, so it keeps up with the server.
 @MainActor
 @Observable
 public final class HomeViewModel {
-    /// The rows to show. Empty until they've loaded, or if there's nothing to show.
+    /// The items the banner goes through: the first few added most recently.
+    // FIXME: Choose these with the recommendations (#30), rather than just the newest.
+    public private(set) var bannerItems: [MediaItem] = []
+    /// The rows under the banner: Continue Watching, then the latest of each library. Empty until
+    /// they've loaded, or if there's nothing to show.
     public private(set) var groups: [RelatedMediaGroup] = []
     /// Whether it's loading with nothing to show yet. Loading again keeps what's showing until the new
     /// rows arrive, so it never blanks Home or shifts it while it does.
@@ -52,18 +57,27 @@ public final class HomeViewModel {
 
     private func performLoad() async {
         guard let session else { return }
-        if groups.isEmpty {
+        if bannerItems.isEmpty && groups.isEmpty {
             isLoading = true
             message = nil
             canRetry = false
         }
         defer { isLoading = false }
         do {
-            let items = try await client.recentlyAdded(for: session)
-            let groups = items.isEmpty ? [] : [RelatedMediaGroup(id: Self.recentlyAddedID, title: "Recently Added", items: items)]
+            async let banner = client.recentlyAdded(for: session, limit: Self.bannerCount)
+            async let resume = client.resumeItems(for: session)
+            async let nextUp = client.nextUp(for: session)
+            async let libraries = client.libraries(for: session)
+            // Without the user's settings, every library has a Latest row.
+            async let leftOut = (try? await client.librariesLeftOutOfLatest(for: session)) ?? []
+            let continueWatching = Self.continueWatching(resume: try await resume, nextUp: try await nextUp)
+            let latest = await latestRows(for: try await libraries, leavingOut: await leftOut, session: session)
+            let bannerItems = try await banner
+            let groups = (continueWatching.map { [$0] } ?? []) + latest
             // Unchanged rows stay as they are, so the browsing view keeps its place.
+            if bannerItems != self.bannerItems { self.bannerItems = bannerItems }
             if groups != self.groups { self.groups = groups }
-            message = items.isEmpty ? "Nothing has been added to your libraries yet." : nil
+            message = bannerItems.isEmpty && groups.isEmpty ? String(localized: "Nothing has been added to your libraries yet.") : nil
             canRetry = false
         } catch {
             // Rows already showing stay, with why they couldn't be brought up to date.
@@ -72,5 +86,56 @@ public final class HomeViewModel {
         }
     }
 
-    static let recentlyAddedID = "recently-added"
+    /// What the user is partway through, most recently watched first, then the next episode of each
+    /// show they're watching that they haven't started. Shows they're partway through an episode of
+    /// already aren't listed twice.
+    static func continueWatching(resume: [MediaItem], nextUp: [MediaItem]) -> RelatedMediaGroup? {
+        let resumedIDs = Set(resume.map(\.id))
+        let resumedShows = Set(resume.compactMap { $0.episode?.seriesID })
+        let upNext = nextUp.filter { item in
+            guard !resumedIDs.contains(item.id) else { return false }
+            guard let show = item.episode?.seriesID else { return true }
+            return !resumedShows.contains(show)
+        }
+        let items = resume + upNext
+        guard !items.isEmpty else { return nil }
+        return RelatedMediaGroup(id: continueWatchingID, title: String(localized: "Continue Watching"), items: items, style: .inProgress)
+    }
+
+    /// A row of the latest items of each library that has them, in the user's order, leaving out the
+    /// libraries they've left out of their latest items, and those whose items aren't added as such:
+    /// collections, playlists and Live TV. A library whose latest can't be loaded is left out.
+    private func latestRows(for libraries: [Library], leavingOut leftOut: Set<String>, session: UserSession) async -> [RelatedMediaGroup] {
+        let shown = libraries.filter { !leftOut.contains($0.id) && Self.hasLatestItems($0.kind) }
+        let rows = await withTaskGroup(of: (Int, RelatedMediaGroup?).self) { group in
+            for (index, library) in shown.enumerated() {
+                group.addTask { [client] in
+                    let items = (try? await client.recentlyAdded(for: session, in: library.id, limit: Self.latestCount)) ?? []
+                    let row = items.isEmpty ? nil : RelatedMediaGroup(
+                        id: "latest-\(library.id)",
+                        title: String(localized: "Latest \(library.name)"),
+                        items: items
+                    )
+                    return (index, row)
+                }
+            }
+            var rows: [(Int, RelatedMediaGroup?)] = []
+            for await row in group { rows.append(row) }
+            return rows
+        }
+        return rows.sorted { $0.0 < $1.0 }.compactMap(\.1)
+    }
+
+    static func hasLatestItems(_ kind: Library.Kind) -> Bool {
+        switch kind {
+        case .collections, .playlists, .liveTV: false
+        default: true
+        }
+    }
+
+    static let continueWatchingID = "continue-watching"
+    /// How many of the newest items the banner goes through.
+    static let bannerCount = 8
+    /// How many items each Latest row has.
+    static let latestCount = 16
 }

@@ -1,0 +1,30 @@
+{
+  "Name": "The Bridge",
+  "ServerId": "f2a4c1d3e5b64a7f9c8d0e1f2a3b4c5d",
+  "Id": "9a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "Type": "Episode",
+  "SeriesName": "Andor",
+  "SeriesId": "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
+  "ParentIndexNumber": 1,
+  "IndexNumber": 5,
+  "RunTimeTicks": 31200000000,
+  "PrimaryImageAspectRatio": 1.7777777777777777,
+  "ImageTags": {
+    "Primary": "ep-1c2d"
+  },
+  "BackdropImageTags": [],
+  "ParentBackdropItemId": "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
+  "ParentBackdropImageTags": ["sb-0a1b", "sb-2c3d"],
+  "ParentLogoItemId": "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
+  "ParentLogoImageTag": "sl-4e5f",
+  "ParentThumbItemId": "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
+  "ParentThumbImageTag": "st-6a7b",
+  "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": false,
+    "Played": false,
+    "Key": "andor-s1e5",
+    "ItemId": "9a1b2c3d4e5f60718293a4b5c6d7e8f9"
+  }
+}

@@ -15,14 +15,39 @@ import SwiftUI
 /// inherits the layer it's in as its `ViewState`.
 struct MediaBrowsingView<Header: View>: View {
     let header: Header
+    let topPadding: CGFloat
+    let scrollToTopRequests: Int
+    let showsRows: Bool
+    let canScroll: Bool
 
     @State private var viewModel: MediaBrowsingViewModel
     @FocusState private var focus: BrowsingFocus?
     @Environment(\.displayScale) private var displayScale
 
-    /// - Parameter images: where the items' artwork comes from. Without it, cards show a color.
-    init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil, @ViewBuilder header: () -> Header) {
+    /// - Parameters:
+    ///   - images: where the items' artwork comes from. Without it, cards show a placeholder.
+    ///   - topPadding: room above the header, inside the safe area. A header that reaches the top of
+    ///     the screen, such as Home's banner, has none, and draws past the safe area itself: nothing
+    ///     here clips it.
+    ///   - scrollToTopRequests: goes up each time the view should scroll back to its top. It's a request
+    ///     each time rather than a position kept: a scroll position held for the scroll view puts it
+    ///     back there whenever the view updates, such as while a row opens or closes.
+    ///   - showsRows: whether the rows show, under the header. They fade with the change.
+    ///   - canScroll: whether the view scrolls, including to show what gets focus.
+    init(
+        groups: [RelatedMediaGroup],
+        images: (any MediaImageResolver)? = nil,
+        topPadding: CGFloat = Metrics.verticalPadding,
+        scrollToTopRequests: Int = 0,
+        showsRows: Bool = true,
+        canScroll: Bool = true,
+        @ViewBuilder header: () -> Header
+    ) {
         _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups, images: images))
+        self.topPadding = topPadding
+        self.scrollToTopRequests = scrollToTopRequests
+        self.showsRows = showsRows
+        self.canScroll = canScroll
         self.header = header()
     }
 
@@ -67,17 +92,34 @@ struct MediaBrowsingView<Header: View>: View {
     }
 
     private var browsing: some View {
+        ScrollViewReader { scroller in
+            rows
+                .onChange(of: scrollToTopRequests) {
+                    withAnimation(Metrics.scrollToTop) { scroller.scrollTo(Metrics.topID, anchor: .top) }
+                }
+        }
+    }
+
+    private var rows: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 header
+                    .id(Metrics.topID)
                 ForEach(viewModel.groups) { group in
                     RelatedMediaGroupPosterView(viewModel: group, isOpen: viewModel.isOpen(group), focus: $focus) { item in
                         viewModel.select(item, in: group)
                     }
+                    // Coming back from the next row, or from above, lands on the poster focus left.
+                    .defaultFocus($focus, viewModel.posterToComeBack(to: group), priority: .userInitiated)
+                    .opacity(showsRows ? 1 : 0)
                 }
             }
-            .padding(.vertical, Metrics.verticalPadding)
+            .padding(.top, topPadding)
+            .padding(.bottom, Metrics.verticalPadding)
         }
+        // Content scrolls on past the safe area, up to the screen's edges.
+        .scrollClipDisabled()
+        .scrollDisabled(!canScroll)
     }
 }
 
@@ -86,6 +128,8 @@ extension MediaBrowsingView {
         static var rowSpacing: CGFloat { 56 }
         static var verticalPadding: CGFloat { 40 }
         static var backdropOpacity: Double { 0.85 }
+        static var scrollToTop: Animation { .smooth(duration: 0.4) }
+        static var topID: String { "browsing.top" }
     }
 }
 

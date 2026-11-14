@@ -57,10 +57,10 @@ extension JellyfinServerClient {
         parameters.startIndex = startIndex
         parameters.limit = limit
         parameters.enableTotalRecordCount = true
-        parameters.fields = [.overview, .genres, .primaryImageAspectRatio]
+        parameters.fields = Self.cardFields
         parameters.enableImages = true
         parameters.imageTypeLimit = 1
-        parameters.enableImageTypes = [.primary, .thumb, .logo, .backdrop]
+        parameters.enableImageTypes = Self.cardImageTypes
         parameters.enableUserData = true
         switch sidebarItem {
         case .recentlyAdded:

@@ -49,7 +49,13 @@ struct MainNavigationView: View {
             ZStack {
                 ForEach(viewModel.sectionsToKeep, id: \.self) { section in
                     let isShowing = section == viewModel.selection
-                    NavigationStack { view(for: section, isShowing: isShowing) }
+                    NavigationStack {
+                        view(for: section, isShowing: isShowing)
+                            // Fades as one image as a view is pushed over it or popped off. Faded layer
+                            // by layer, what's covered showed through: a full-screen card's poster under
+                            // its backdrop, and the rows behind the card. It costs nothing at rest.
+                            .compositingGroup()
+                    }
                         .opacity(isShowing ? 1 : 0)
                         .disabled(!isShowing)
                         .accessibilityHidden(!isShowing)

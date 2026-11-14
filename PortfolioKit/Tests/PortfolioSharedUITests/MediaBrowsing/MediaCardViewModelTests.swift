@@ -67,6 +67,19 @@ struct MediaCardViewModelTests {
         #expect(!viewModel.isDimmed(in: .preview))
     }
 
+    @Test func showsItsActionsWithItsDetailsAsDarkenedAsItIs() {
+        #expect(viewModel.actionsOpacity(in: .root) == 0)
+
+        viewModel.isFocused = true
+        #expect(viewModel.actionsOpacity(in: .preview) == 1)
+
+        viewModel.isFocused = false
+        #expect(viewModel.actionsOpacity(in: .preview) == 1 - MediaCardView.Metrics.dimmedOpacity)
+
+        viewModel.showsLabels = false
+        #expect(viewModel.actionsOpacity(in: .preview) == 0)
+    }
+
     // MARK: Artwork
 
     /// Answers with a URL naming what was asked for, for any image the item has.
@@ -78,7 +91,7 @@ struct MediaCardViewModelTests {
         }
     }
 
-    func card(_ images: [MediaImageKind: String]) -> MediaCardViewModel {
+    func card(_ images: [MediaImageKind: MediaImageReference]) -> MediaCardViewModel {
         let card = MediaCardViewModel(item: MediaItem(id: "movie", name: "Arrival", kind: .movie, images: images), images: DescribingImages())
         card.posterArtworkSize = CGSize(width: 500, height: 800)
         card.landscapeArtworkSize = CGSize(width: 3900, height: 2200)
@@ -175,6 +188,78 @@ struct MediaCardViewModelTests {
     func keepsUnusualShapesWithinReason(_ ratio: Double, _ drawn: CGFloat) {
         let item = MediaItem(id: "odd", name: "Odd", kind: .movie, primaryImageAspectRatio: ratio)
         #expect(MediaCardViewModel(item: item).posterAspectRatio == drawn)
+    }
+
+    // MARK: Progress
+
+    func card(runtime minutes: Int?, watched watchedMinutes: Int = 0, episode: EpisodeInfo? = nil) -> MediaCardViewModel {
+        MediaCardViewModel(item: MediaItem(
+            id: "item",
+            name: "Item",
+            kind: episode == nil ? .movie : .episode,
+            runtime: minutes.map { .seconds($0 * 60) },
+            userData: UserData(playbackPosition: .seconds(watchedMinutes * 60)),
+            episode: episode
+        ))
+    }
+
+    @Test func showsHowFarAlongAnItemIs() {
+        let card = card(runtime: 100, watched: 25)
+        #expect(card.progress == 0.25)
+        #expect(card.timeLeftLabel == "1h 15m left")
+    }
+
+    @Test func showsNoProgressForAnItemNotStartedYet() {
+        let card = card(runtime: 45)
+        #expect(card.progress == nil)
+        #expect(card.timeLeftLabel == "45m left")
+    }
+
+    @Test func roundsTheTimeLeftUp() {
+        let card = MediaCardViewModel(item: MediaItem(
+            id: "item", name: "Item", kind: .movie, runtime: .seconds(600), userData: UserData(playbackPosition: .seconds(590))
+        ))
+        #expect(card.timeLeftLabel == "1m left")
+    }
+
+    @Test func showsNoTimeLeftWithoutAKnownLength() {
+        #expect(card(runtime: nil).timeLeftLabel == nil)
+    }
+
+    @Test(arguments: [
+        (EpisodeInfo(seasonNumber: 1, episodeNumber: 5), "S1E5"),
+        (EpisodeInfo(seasonNumber: 12, episodeNumber: 103), "S12E103"),
+        (EpisodeInfo(episodeNumber: 5), "E5"),
+        (EpisodeInfo(seasonNumber: 1), nil),
+    ])
+    func namesAnEpisodeBySeasonAndNumber(_ episode: EpisodeInfo, _ label: String?) {
+        #expect(card(runtime: 45, episode: episode).episodeLabel == label)
+    }
+
+    @Test func namesNoEpisodeForAMovie() {
+        #expect(card(runtime: 120).episodeLabel == nil)
+    }
+
+    @Test func showsProgressOnlyOnAPosterThatShowsIt() {
+        let card = card(runtime: 100, watched: 25)
+        #expect(!card.showsProgressIndicator(in: .root))
+
+        card.showsProgress = true
+        #expect(card.showsProgressIndicator(in: .root))
+        #expect(!card.showsProgressIndicator(in: .preview))
+
+        card.showsLabels = false
+        #expect(!card.showsProgressIndicator(in: .root))
+    }
+
+    @Test func fetchesLandscapeArtSmallerWhileAWideCardRests() {
+        let card = card([.primary: "p", .backdrop(): "b"])
+        card.restingLandscapeArtworkSize = CGSize(width: 1000, height: 600)
+        #expect(card.landscapeArtworkURL?.absoluteString == "https://images.test/movie/backdrop(index:0)/1000x600")
+
+        // Warm, it may grow, so it comes at the screen's size.
+        card.isWarm = true
+        #expect(card.landscapeArtworkURL?.absoluteString == "https://images.test/movie/backdrop(index:0)/3900x2200")
     }
 
     @Test func goesFromPosterToPlatterToFullScreen() {

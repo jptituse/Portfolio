@@ -83,6 +83,16 @@ struct RemoteImageViewModelTests {
         #expect(mock.requests.count { $0.url?.path.contains("/Images/") == true } == 1)
     }
 
+    @Test func keepsWhatItShowsInMemoryForOtherViewsToShowAtOnce() async {
+        let poster = RemoteImageViewModel(pipeline: pipeline)
+        await poster.show(url("Primary"))
+
+        pipeline.removeUnseenImagesFromMemory()
+        let card = RemoteImageViewModel(pipeline: pipeline)
+
+        #expect(card.layers(for: url("Primary")).first?.image === poster.image)
+    }
+
     @Test func theLatestImageAskedForWins() async throws {
         let viewModel = RemoteImageViewModel(pipeline: pipeline)
         await viewModel.show(url("Primary"))

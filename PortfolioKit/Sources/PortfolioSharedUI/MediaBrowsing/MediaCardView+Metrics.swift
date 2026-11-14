@@ -9,9 +9,9 @@ extension MediaCardView {
         public static var labelFadeIn: Animation { .easeInOut(duration: 0.25) }
         /// Landscape art covering the poster, early in a card's 0.44 s widening or growth.
         static var landscapeFadeIn: Animation { .easeOut(duration: 0.2) }
-        /// Landscape art uncovering the poster as a card narrows or shrinks back to one, matching its
-        /// motion.
-        static var landscapeFadeOut: Animation { .smooth(duration: 0.44) }
+        /// Landscape art uncovering the poster as a card narrows or shrinks back to one: early, so the
+        /// poster shrinks with the card.
+        static var landscapeFadeOut: Animation { .easeOut(duration: 0.2) }
 
         public static let posterCornerRadius: CGFloat = 16
         static let platterCornerRadius: CGFloat = 24
@@ -21,6 +21,10 @@ extension MediaCardView {
         static let titleLineLimit = 2
         /// The most a wide poster's logo takes up, at its bottom-leading corner.
         public static let logoSize = CGSize(width: 240, height: 90)
+        /// The most a logo takes up on a card that shows its progress, which also has to fit.
+        static let compactLogoSize = CGSize(width: 180, height: 60)
+        static let progressSpacing: CGFloat = 10
+        static let progressScrimOpacity = 0.6
         /// The most the logo takes up in the details of a platter or full screen, its largest. Logos are
         /// fetched at this size and drawn smaller on wide posters.
         public static let detailsLogoSize = CGSize(width: 520, height: 160)
@@ -29,11 +33,11 @@ extension MediaCardView {
         static let logoShadowRadius: CGFloat = 6
 
         public static let fullScreenDetailsLeadingPadding: CGFloat = 96
-        static let platterDetailsLeadingPadding: CGFloat = 64
-        /// Space between the bottom of the screen and the details.
-        static let detailsBottomMargin: CGFloat = 96
-        /// Space the full-screen card leaves below its details for the actions drawn above it.
-        static let actionsReservedHeight: CGFloat = 110
+        public static let platterDetailsLeadingPadding: CGFloat = 64
+        /// Space between the bottom of the screen and the actions under a card's details.
+        public static let detailsBottomMargin: CGFloat = 96
+        /// Space a platter or full-screen card leaves below its details for the actions drawn above it.
+        public static let actionsReservedHeight: CGFloat = 110
 
 
         static func cornerRadii(for form: MediaCardForm) -> RectangleCornerRadii {
@@ -57,8 +61,8 @@ extension MediaCardView {
             form == .fullScreen ? fullScreenDetailsLeadingPadding : platterDetailsLeadingPadding
         }
 
-        static func detailsBottomPadding(for form: MediaCardForm) -> CGFloat {
-            form == .fullScreen ? detailsBottomMargin + actionsReservedHeight : detailsBottomMargin
-        }
+        /// The details sit above the actions, on a platter as at full screen, so neither moves up or down
+        /// as a platter grows to full screen.
+        static var detailsBottomPadding: CGFloat { detailsBottomMargin + actionsReservedHeight }
     }
 }

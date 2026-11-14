@@ -48,7 +48,8 @@ final class MediaCardExpansionViewModel {
     /// Runs once the card is on screen on top of its poster: grows it to fill the screen. Once it has,
     /// the actions appear and `onGrown` moves focus to them.
     func grow(onGrown: @escaping () -> Void) {
-        guard let card, layer == .root else { return }
+        guard let card else { return }
+        guard layer == .root else { return }
         withAnimation(MediaCardView.Metrics.labelFadeOut) { card.showsLabels = false }
         withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .logicallyComplete) {
             layer = .preview
@@ -71,7 +72,9 @@ final class MediaCardExpansionViewModel {
     func collapse(onCollapsed: @escaping () -> Void) {
         guard let card, layer == .preview else { return }
         withAnimation(MediaCardView.Metrics.labelFadeOut) { card.showsLabels = false }
-        withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .logicallyComplete) {
+        // Only once the card is on its poster: removing it while it's still moving makes it jump onto
+        // the poster.
+        withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .removed) {
             layer = .root
         } completion: { [self] in
             // The poster gets focus before the card goes: removing the card first lets tvOS pick a
@@ -94,11 +97,7 @@ final class MediaCardExpansionViewModel {
         }
         let poster = globalPoster.offsetBy(dx: -globalFrame.minX, dy: -globalFrame.minY)
         guard startsLifted else { return poster }
-        typealias Metrics = RelatedMediaGroupCarouselView.Metrics
-        // tvOS enlarges a wide poster less, in proportion, than a narrow one.
-        let liftScale = poster.width >= RelatedMediaGroupPosterView.Metrics.extendedPosterWidth
-            ? Metrics.extendedPosterLiftScale : Metrics.posterLiftScale
-        let grow = liftScale - 1
+        let grow = RelatedMediaGroupCarouselView.Metrics.liftScale(forWidth: poster.width) - 1
         return poster.insetBy(dx: -poster.width * grow / 2, dy: -poster.height * grow / 2)
     }
 }

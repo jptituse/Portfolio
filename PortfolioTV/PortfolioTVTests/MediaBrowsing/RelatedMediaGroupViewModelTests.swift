@@ -128,13 +128,68 @@ extension RelatedMediaGroupViewModelTests {
         viewModel.willOpen(on: group.items[1].id)
         let layout = viewModel.carouselLayout(in: carouselFrame, layer: .root)
         #expect(layout.liftedIndex == 1)
-        #expect(layout.liftScale == Metrics.posterLiftScale)
+        #expect(layout.liftScale == Metrics.liftScale(forWidth: 250))
 
         viewModel.extendHighlightedPoster()
-        #expect(viewModel.carouselLayout(in: carouselFrame, layer: .root).liftScale == Metrics.extendedPosterLiftScale)
+        #expect(viewModel.carouselLayout(in: carouselFrame, layer: .root).liftScale == Metrics.liftScale(forWidth: RelatedMediaGroupPosterView.Metrics.extendedPosterWidth))
 
         viewModel.startsLifted = false
         #expect(viewModel.carouselLayout(in: carouselFrame, layer: .root).liftedIndex == nil)
+    }
+
+    // MARK: Items in progress
+
+    func inProgress() -> RelatedMediaGroupViewModel {
+        RelatedMediaGroupViewModel(
+            group: RelatedMediaGroup(id: "continue", title: "Continue Watching", items: group.items, style: .inProgress),
+            idleDelay: .milliseconds(10)
+        )
+    }
+
+    @Test func showsItemsInProgressAsWideCardsWithHowFarAlongTheyAre() {
+        let viewModel = inProgress()
+        let card = viewModel.card(for: group.items[0])
+
+        #expect(card.isExtended)
+        #expect(card.showsProgress)
+        #expect(viewModel.posterSize(of: card) == RelatedMediaGroupPosterView.Metrics.inProgressCardSize)
+    }
+
+    @Test func keepsCardsInProgressWideAndMakesNoRoomToWiden() async throws {
+        let viewModel = inProgress()
+        viewModel.posterFocused(group.items[0].id)
+        viewModel.posterFocused(group.items[1].id)
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(viewModel.card(for: group.items[0]).isExtended)
+        #expect(viewModel.extensionRoom == 0)
+        #expect(!viewModel.isMakingRoomToExtend)
+    }
+
+    @Test func fetchesTheLandscapeArtOfCardsInProgressAtTheirSizeUntilTheyMayGrow() {
+        let viewModel = inProgress()
+        viewModel.setScreen(scale: 2, size: CGSize(width: 1920, height: 1080))
+        let card = viewModel.card(for: group.items[0])
+
+        #expect(card.restingLandscapeArtworkSize == RemoteImageViewModel.requestSize(for: RelatedMediaGroupPosterView.Metrics.inProgressCardSize, scale: 2))
+        #expect(card.landscapeArtworkSize == RemoteImageViewModel.requestSize(for: CGSize(width: 1920, height: 1080), scale: 2))
+    }
+
+    @Test func fetchesAPostersLandscapeArtAtTheScreensSizeOnly() {
+        let viewModel = makeViewModel()
+        viewModel.setScreen(scale: 2, size: CGSize(width: 1920, height: 1080))
+        #expect(card(0, in: viewModel).restingLandscapeArtworkSize == nil)
+    }
+
+    @Test(arguments: [
+        // Measured from 4K frames: points at rest, points lifted.
+        (CGFloat(250), CGFloat(277)),
+        (480, 520),
+        (667, 707),
+    ])
+    func liftsACardAsTvOSDoes(_ width: CGFloat, _ lifted: CGFloat) {
+        let scale = RelatedMediaGroupCarouselView.Metrics.liftScale(forWidth: width)
+        #expect(abs(width * scale - lifted) < 0.5)
     }
 
     @Test func focusComesBackToTheOpenCardOrToItsActionsOnceItHasExpanded() {
