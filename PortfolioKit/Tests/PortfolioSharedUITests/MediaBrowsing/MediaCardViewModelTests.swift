@@ -85,13 +85,13 @@ struct MediaCardViewModelTests {
     /// Answers with a URL naming what was asked for, for any image the item has.
     struct DescribingImages: MediaImageResolver {
         func url(for item: MediaItem, _ kind: MediaImageKind, pixelSize: CGSize) -> URL? {
-            guard item.images[kind] != nil else { return nil }
+            guard item.hasImage(kind) else { return nil }
             let kind = "\(kind)".replacing(" ", with: "")
             return URL(string: "https://images.test/\(item.id)/\(kind)/\(Int(pixelSize.width))x\(Int(pixelSize.height))")
         }
     }
 
-    func card(_ images: [MediaImageKind: MediaImageReference]) -> MediaCardViewModel {
+    func card(_ images: [MediaImageKind: String]) -> MediaCardViewModel {
         let card = MediaCardViewModel(item: MediaItem(id: "movie", name: "Arrival", kind: .movie, images: images), images: DescribingImages())
         card.posterArtworkSize = CGSize(width: 500, height: 800)
         card.landscapeArtworkSize = CGSize(width: 3900, height: 2200)

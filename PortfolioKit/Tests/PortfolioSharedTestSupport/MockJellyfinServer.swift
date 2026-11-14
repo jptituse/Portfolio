@@ -49,11 +49,6 @@ public final class MockJellyfinServer: Sendable {
         public var seriesID: String?
         public var seasonNumber: Int?
         public var episodeNumber: Int?
-        /// The show's backdrops and logo, which an episode shows as its own.
-        public var parentBackdropItemID: String?
-        public var parentBackdropTags: [String] = []
-        public var parentLogoItemID: String?
-        public var parentLogoTag: String?
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -339,10 +334,6 @@ public final class MockJellyfinServer: Sendable {
         json["SeriesId"] = item.seriesID
         json["ParentIndexNumber"] = item.seasonNumber
         json["IndexNumber"] = item.episodeNumber
-        json["ParentBackdropItemId"] = item.parentBackdropItemID
-        json["ParentBackdropImageTags"] = item.parentBackdropTags.isEmpty ? nil : item.parentBackdropTags
-        json["ParentLogoItemId"] = item.parentLogoItemID
-        json["ParentLogoImageTag"] = item.parentLogoTag
         return json
     }
 

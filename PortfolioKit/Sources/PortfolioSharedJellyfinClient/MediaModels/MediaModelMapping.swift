@@ -14,30 +14,31 @@ extension Duration {
 
 /// An item's own images by kind. Jellyfin lists their tags by image type, and its backdrops' tags
 /// apart, in order.
-func mediaImages(tags: [String: String]?, backdrops: [String]?) -> [MediaImageKind: MediaImageReference] {
-    var images: [MediaImageKind: MediaImageReference] = [:]
+func mediaImages(tags: [String: String]?, backdrops: [String]?) -> [MediaImageKind: String] {
+    var images: [MediaImageKind: String] = [:]
     for (kind, type) in [(MediaImageKind.primary, ImageType.primary), (.thumb, .thumb), (.logo, .logo)] {
-        images[kind] = tags?[type.rawValue].map { MediaImageReference(tag: $0) }
+        images[kind] = tags?[type.rawValue]
     }
     for (index, tag) in (backdrops ?? []).enumerated() {
-        images[.backdrop(index: index)] = MediaImageReference(tag: tag)
+        images[.backdrop(index: index)] = tag
     }
     return images
 }
 
-/// An item's images, its own and, for those it lacks, the ones Jellyfin says it borrows: an episode
-/// or season shows its show's thumbnail, backdrops and logo.
-func mediaImages(of dto: BaseItemDto) -> [MediaImageKind: MediaImageReference] {
-    var images = mediaImages(tags: dto.imageTags, backdrops: dto.backdropImageTags)
-    if images[.thumb] == nil, let owner = dto.parentThumbItemID, let tag = dto.parentThumbImageTag {
-        images[.thumb] = MediaImageReference(tag: tag, ownerID: owner)
+/// The show's images that Jellyfin says an episode shows: its thumbnail, backdrops and logo. Jellyfin
+/// can point an episode at its season's instead, when the season has its own; those are left out.
+func seriesImages(of dto: BaseItemDto) -> [MediaImageKind: String] {
+    guard let series = dto.seriesID else { return [:] }
+    var images: [MediaImageKind: String] = [:]
+    if dto.parentThumbItemID == series {
+        images[.thumb] = dto.parentThumbImageTag
     }
-    if images[.logo] == nil, let owner = dto.parentLogoItemID, let tag = dto.parentLogoImageTag {
-        images[.logo] = MediaImageReference(tag: tag, ownerID: owner)
+    if dto.parentLogoItemID == series {
+        images[.logo] = dto.parentLogoImageTag
     }
-    if images[.backdrop()] == nil, let owner = dto.parentBackdropItemID {
+    if dto.parentBackdropItemID == series {
         for (index, tag) in (dto.parentBackdropImageTags ?? []).enumerated() {
-            images[.backdrop(index: index)] = MediaImageReference(tag: tag, ownerID: owner)
+            images[.backdrop(index: index)] = tag
         }
     }
     return images
@@ -82,11 +83,17 @@ extension MediaItem {
             officialRating: dto.officialRating,
             communityRating: dto.communityRating.map(Double.init),
             genres: dto.genres ?? [],
-            images: mediaImages(of: dto),
+            images: mediaImages(tags: dto.imageTags, backdrops: dto.backdropImageTags),
             primaryImageAspectRatio: dto.primaryImageAspectRatio,
             userData: UserData(dto.userData),
             episode: dto.type == .episode
-                ? EpisodeInfo(seriesName: dto.seriesName, seriesID: dto.seriesID, seasonNumber: dto.parentIndexNumber, episodeNumber: dto.indexNumber)
+                ? EpisodeInfo(
+                    seriesName: dto.seriesName,
+                    seriesID: dto.seriesID,
+                    seasonNumber: dto.parentIndexNumber,
+                    episodeNumber: dto.indexNumber,
+                    seriesImages: seriesImages(of: dto)
+                )
                 : nil
         )
     }

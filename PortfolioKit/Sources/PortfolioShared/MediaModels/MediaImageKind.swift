@@ -1,4 +1,4 @@
-/// A kind of image an item can have, and the key to its reference in `MediaItem.images`.
+/// A kind of image an item can have, and the key to its tag in `MediaItem.images`.
 public enum MediaImageKind: Hashable, Sendable {
     /// The item's main image: a movie's poster, an episode's still.
     case primary
