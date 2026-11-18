@@ -15,6 +15,8 @@ struct HomeBannerView: View {
     /// The screen's safe area, which the text keeps within.
     let safeArea: EdgeInsets
     var focus: FocusState<HomeFocus?>.Binding
+    /// Plays an item from the beginning.
+    let onPlay: (MediaItem) -> Void
     let onInfo: () -> Void
     let onNext: () -> Void
 
@@ -84,9 +86,9 @@ struct HomeBannerView: View {
     /// Where Left or Right from the buttons lands while there's a banner that way. It doesn't fade with
     /// the buttons, since focus can't move to, or stay on, what's faded out entirely, and for the same
     /// reason it isn't clear, only too faint to see.
-    private func edgeCatcher(_ edge: HomeFocus, isActive: Bool, width: CGFloat? = Metrics.catcherWidth) -> some View {
+    private func edgeCatcher(_ edge: HomeFocus, isActive: Bool) -> some View {
         Color.black.opacity(Metrics.focusableOpacity)
-            .frame(width: width, height: width == nil ? nil : Metrics.catcherHeight)
+            .frame(width: Metrics.catcherWidth, height: Metrics.catcherHeight)
             // It stays focusable while it holds focus, even once there's nowhere left to go that way,
             // until it lets focus go: focus asked to move off it otherwise stays put.
             .focusable((isActive || focus.wrappedValue == edge) && viewModel.catchesEdges)
@@ -118,8 +120,8 @@ struct HomeBannerView: View {
                 .id(item.id)
                 .padding(.bottom, MediaCardView.Metrics.actionsReservedHeight)
                 .opacity(viewModel.showsLabels ? 1 : 0)
-            buttons
-            MediaDetailActionsView(item: item, focus: focus, focusValue: HomeFocus.detail(item.id), isActive: viewModel.detailsAreAway)
+            buttons(for: item)
+            MediaDetailActionsView(item: item, focus: focus, focusValue: HomeFocus.detail(item.id), isActive: viewModel.detailsAreAway, onPlay: { onPlay(item) })
                 .opacity(viewModel.showsDetails ? 1 : viewModel.detailsAreAway ? Metrics.focusableOpacity : 0)
         }
     }
@@ -127,21 +129,18 @@ struct HomeBannerView: View {
     /// Play, Info and next. They, and what catches Left and Right, fade only as far as
     /// `focusableOpacity`, too faint to see: focus can't move to, or stay on, something faded out
     /// entirely, and it stays on the button it's on.
-    private var buttons: some View {
+    private func buttons(for item: MediaItem) -> some View {
         let opacity: Double = viewModel.showsLabels && !viewModel.showsDetails ? 1 : Metrics.focusableOpacity
         return HStack(spacing: Metrics.buttonSpacing) {
             // Left and Right from the buttons move between banners; Left from the first brings in the
             // sidebar, and Right from the last goes round to the first. Handling the move doesn't stop
             // tvOS moving focus into the sidebar, so while there's a banner either way, something
-            // focusable waits on that side to catch the move instead.
-            Button("Play", systemImage: "play.fill") {}
-                .disabled(true)  // Playback comes with #15.
+            // focusable waits on that side to catch the move instead, right beside the buttons.
+            edgeCatcher(.bannerLeftEdge, isActive: viewModel.hasPrevious)
+            Button("Play", systemImage: "play.fill") { onPlay(item) }
+                .focused(focus, equals: .bannerPlay)
+                .accessibilityIdentifier("home.banner.play")
                 .opacity(opacity)
-                // Right beside the leftmost button, so tvOS finds it before the sidebar.
-                // FIXME: Move it left of Play once Play is enabled (#15).
-                .background {
-                    edgeCatcher(.bannerLeftEdge, isActive: viewModel.hasPrevious, width: nil)
-                }
             Button("Info", systemImage: "info.circle", action: onInfo)
                 .labelStyle(.iconOnly)
                 .focused(focus, equals: .bannerInfo)
@@ -159,6 +158,8 @@ struct HomeBannerView: View {
         }
         .buttonStyle(.glass)
         .disabled(!viewModel.buttonsTakeFocus)
+        // The left catcher sits in the margin, so Play lines up with the details above it.
+        .padding(.leading, -(Metrics.catcherWidth + Metrics.buttonSpacing))
     }
 }
 

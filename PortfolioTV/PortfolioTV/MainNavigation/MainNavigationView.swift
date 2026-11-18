@@ -1,3 +1,5 @@
+import PortfolioShared
+import PortfolioSharedPlaybackEngine
 import PortfolioSharedUI
 import SwiftUI
 
@@ -6,16 +8,25 @@ import SwiftUI
 /// loaded: one entry per standard kind, then, below a separator, libraries on their own and Settings. The app opens with the sidebar hidden and focus on the
 /// content. Left or Menu brings the sidebar in over the content, and moving back into the content
 /// dismisses it. Each section has its own navigation stack, so moving between sections keeps your
-/// place in each.
+/// place in each. Play anywhere plays full screen over all of it.
 struct MainNavigationView: View {
     let currentProfile: CurrentProfileViewModel
+    /// Makes the engine each player plays in, of the app's choosing.
+    let makePlaybackEngine: () throws -> any PlaybackEngine
 
     @State private var viewModel: MainNavigationViewModel
     @State private var home: HomeViewModel
+    /// What's playing, while something is.
+    @State private var player: PlayerViewModel?
+    /// Shows what's playing's detail view behind the player as it closes, when it didn't open from there.
+    @State private var showDetailsOnClose: (() -> Void)?
+    /// Whether the player is up, from Play until it has gone.
+    @State private var isPlayerUp = false
     @FocusState private var focusedSection: MainSection?
 
-    init(currentProfile: CurrentProfileViewModel) {
+    init(currentProfile: CurrentProfileViewModel, makePlaybackEngine: @escaping () throws -> any PlaybackEngine) {
         self.currentProfile = currentProfile
+        self.makePlaybackEngine = makePlaybackEngine
         _viewModel = State(initialValue: MainNavigationViewModel(libraries: currentProfile.makeLibrariesViewModel()))
         _home = State(initialValue: currentProfile.makeHomeViewModel())
     }
@@ -62,7 +73,30 @@ struct MainNavigationView: View {
                 }
             }
         }
+        .environment(\.isPlayerUp, isPlayerUp)
+        .environment(\.preparePlayback, PreparePlaybackAction(currentProfile))
+        .fullScreenCover(item: $player, onDismiss: playerDidClose) { player in
+            PlayerView(viewModel: player, onClose: closePlayer)
+        }
+        #if DEBUG
+        .onAppear(perform: playTestVideoIfAsked)
+        #endif
     }
+
+    #if DEBUG
+    /// UI tests pass a test video's URL to play, so they can check playback without a server. The app
+    /// itself only ever plays what its server sends.
+    private func playTestVideoIfAsked() {
+        guard player == nil,
+            let address = ProcessInfo.processInfo.environment["PORTFOLIO_PLAYBACK_TEST_URL"],
+            let url = URL(string: address) else {
+            return
+        }
+        let title = url.deletingPathExtension().lastPathComponent
+        isPlayerUp = true
+        player = PlayerViewModel(title: title, source: PlaybackSource(url: url), makeEngine: makePlaybackEngine)
+    }
+    #endif
 
     private func rows(for sections: [MainSection]) -> some View {
         ForEach(sections, id: \.self) { section in
@@ -73,11 +107,40 @@ struct MainNavigationView: View {
         }
     }
 
+    /// Plays `item` from `position`, full screen, from the profile's server. `showDetails`, if given,
+    /// shows its detail view behind the player as it closes.
+    private func play(_ item: MediaItem, from position: Duration, showDetails: (() -> Void)?) {
+        showDetailsOnClose = showDetails
+        isPlayerUp = true
+        player = currentProfile.makePlayer(for: item, startingAt: position, makeEngine: makePlaybackEngine)
+    }
+
+    /// Closes the player, and has what played show its detail view behind it as it goes, so it's there
+    /// as the player fades away.
+    private func closePlayer() {
+        player = nil
+        showDetailsOfWhatPlayed()
+    }
+
+    /// The player has gone: what's behind it can take focus again. Closed some other way than
+    /// `closePlayer()`, what played still shows its detail view.
+    private func playerDidClose() {
+        showDetailsOfWhatPlayed()
+        isPlayerUp = false
+    }
+
+    /// Shows what played's detail view, once.
+    private func showDetailsOfWhatPlayed() {
+        let showDetails = showDetailsOnClose
+        showDetailsOnClose = nil
+        showDetails?()
+    }
+
     /// A section's view. Sections that load from the server load again each time they're shown.
     @ViewBuilder private func view(for section: MainSection, isShowing: Bool) -> some View {
         switch section {
-        case .home: HomeView(viewModel: home, isShowing: isShowing)
-        case .library(let scope): LibraryView(viewModel: viewModel.libraries.viewModel(for: scope), isShowing: isShowing)
+        case .home: HomeView(viewModel: home, isShowing: isShowing, onPlay: play)
+        case .library(let scope): LibraryView(viewModel: viewModel.libraries.viewModel(for: scope), isShowing: isShowing, onPlay: play)
         case .search: SearchView()
         case .settings: SettingsView()
         }
@@ -106,6 +169,6 @@ private extension View {
 
 #if DEBUG
 #Preview {
-    MainNavigationView(currentProfile: .preview())
+    MainNavigationView(currentProfile: .preview()) { throw CancellationError() }
 }
 #endif

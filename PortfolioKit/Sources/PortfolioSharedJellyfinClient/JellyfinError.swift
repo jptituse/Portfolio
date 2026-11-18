@@ -16,6 +16,8 @@ public enum JellyfinError: Error, Hashable, Sendable {
     case unauthorized
     /// The server failed the request. `statusCode` is nil when the response itself was unusable.
     case serverError(statusCode: Int?)
+    /// The server won't send the item as it is, and the app doesn't ask it to transcode.
+    case cannotPlayDirectly
 }
 
 /// Which kind of request failed, since the same failure means different things for each.
@@ -33,7 +35,7 @@ extension JellyfinError {
         switch self {
         case .unreachable: 0
         case .notJellyfinServer: 1
-        case .serverError: 2
+        case .serverError, .cannotPlayDirectly: 2
         case .unauthorized: 3
         case .unsupportedVersion: 4
         }

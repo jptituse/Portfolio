@@ -6,14 +6,15 @@
 //
 
 import PortfolioShared
+import PortfolioSharedAetherPlaybackEngine
 import PortfolioSharedJellyfinClient
 import PortfolioSharedUI
 import SwiftUI
 
 @main
 struct PortfolioTVApp: App {
-    /// The app talks to Jellyfin and keeps its session in the Keychain. This is the one place that
-    /// choice is made.
+    /// The app talks to Jellyfin, keeps its session in the Keychain, and plays through AetherEngine.
+    /// This is the one place those choices are made.
     private let client: JellyfinServerClient
     @State private var sessionManager: SessionManager
 
@@ -43,7 +44,7 @@ struct PortfolioTVApp: App {
             RootView(sessionManager: sessionManager, client: client) { profiles in
                 ProfilesView(viewModel: profiles)
             } main: { currentProfile in
-                MainNavigationView(currentProfile: currentProfile)
+                MainNavigationView(currentProfile: currentProfile) { try AetherPlaybackEngine() }
             }
         }
     }

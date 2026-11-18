@@ -14,6 +14,8 @@ struct RelatedMediaGroupCarouselCardsView: View, @preconcurrency Animatable {
     let globalFrame: CGRect
     var focus: FocusState<BrowsingFocus?>.Binding
     let onExpand: (MediaItem.ID) -> Void
+    /// Plays an item from the beginning, if the row's items can be played.
+    let onPlay: ((MediaItem) -> Void)?
     /// The layer the row's hierarchy is in, which sets the cards' forms: posters, platters or full
     /// screen.
     let layer: ViewState
@@ -90,7 +92,7 @@ struct RelatedMediaGroupCarouselCardsView: View, @preconcurrency Animatable {
         let item = viewModel.group.items[index]
         let frame = layout.frame(of: index)
         let takesFocus = isExpanded && index == viewModel.highlightedIndex
-        return MediaDetailActionsView(item: item, focus: focus, focusValue: .detail(item.id), isActive: takesFocus)
+        return MediaDetailActionsView(item: item, focus: focus, focusValue: .detail(item.id), isActive: takesFocus, onPlay: onPlay.map { play in { play(item) } })
             .padding(.leading, layout.detailsLeadingPadding(of: index))
             .padding(.bottom, MediaCardView.Metrics.detailsBottomMargin)
             .frame(width: frame.width, height: frame.height, alignment: .bottomLeading)

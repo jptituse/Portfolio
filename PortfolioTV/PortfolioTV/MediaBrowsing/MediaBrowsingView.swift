@@ -23,6 +23,8 @@ struct MediaBrowsingView<Header: View>: View {
     @State private var viewModel: MediaBrowsingViewModel
     @FocusState private var focus: BrowsingFocus?
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.isPlayerUp) private var isPlayerUp
+    @Environment(\.preparePlayback) private var preparePlayback
 
     /// - Parameters:
     ///   - images: where the items' artwork comes from. Without it, cards show a placeholder.
@@ -34,6 +36,8 @@ struct MediaBrowsingView<Header: View>: View {
     ///     back there whenever the view updates, such as while a row opens or closes.
     ///   - showsRows: whether the rows show, under the header. They fade with the change.
     ///   - canScroll: whether the view scrolls, including to show what gets focus.
+    ///   - onPlay: plays an item from a position: from the beginning on its card, and where it was
+    ///     left from Continue Watching. Without it, nothing plays, as on the sample rows.
     init(
         groups: [RelatedMediaGroup],
         images: (any MediaImageResolver)? = nil,
@@ -41,9 +45,10 @@ struct MediaBrowsingView<Header: View>: View {
         scrollToTopRequests: Int = 0,
         showsRows: Bool = true,
         canScroll: Bool = true,
+        onPlay: PlayAction? = nil,
         @ViewBuilder header: () -> Header
     ) {
-        _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups, images: images))
+        _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups, images: images, onPlay: onPlay))
         self.topPadding = topPadding
         self.scrollToTopRequests = scrollToTopRequests
         self.showsRows = showsRows
@@ -71,7 +76,8 @@ struct MediaBrowsingView<Header: View>: View {
                         viewModel: openGroup,
                         globalFrame: proxy.frame(in: .global),
                         focus: $focus,
-                        onExpand: { viewModel.expand($0, focus: $focus) }
+                        onExpand: { viewModel.expand($0, focus: $focus) },
+                        onPlay: viewModel.playsFromTheBeginning
                     )
                     // The cards appear exactly on top of their posters, so they must not fade in.
                     .transition(.identity)
@@ -85,7 +91,17 @@ struct MediaBrowsingView<Header: View>: View {
         }
         .environment(\.viewState, viewModel.viewState)
         .onExitCommand(perform: viewModel.canStepBack ? { viewModel.stepBack(focus: $focus) } : nil)
-        .onChange(of: focus) { _, newValue in viewModel.focusMoved(to: newValue) }
+        .onChange(of: focus) { _, newValue in
+            viewModel.focusMoved(to: newValue)
+            // A poster that plays when selected, as in Continue Watching, starts sooner for having asked
+            // where it plays from while it had focus.
+            if let item = viewModel.itemPlayedOnSelect(at: newValue) { preparePlayback(item) }
+        }
+        // Played from Continue Watching, its row opened on the full-screen card behind the player as it
+        // closed, but focus couldn't move there until the player had gone.
+        .onChange(of: isPlayerUp) { _, isPlayerUp in
+            if !isPlayerUp, let target = viewModel.fullScreenActions { focus = target }
+        }
         .onChange(of: openGroup == nil) { _, isClosed in
             if isClosed { viewModel.groupDidClose() }
         }
@@ -112,6 +128,9 @@ struct MediaBrowsingView<Header: View>: View {
                     // Coming back from the next row, or from above, lands on the poster focus left.
                     .defaultFocus($focus, viewModel.posterToComeBack(to: group), priority: .userInitiated)
                     .opacity(showsRows ? 1 : 0)
+                    // Hidden rows still overlap what's above them, such as Home's banner, and a row's
+                    // focus section, enabled, caught moves there even with nothing in it to focus.
+                    .disabled(!showsRows)
                 }
             }
             .padding(.top, topPadding)

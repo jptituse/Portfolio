@@ -27,6 +27,67 @@ struct MediaBrowsingViewModelTests {
         #expect(viewModel.viewState == .root)
     }
 
+    @Test func continueWatchingPlaysFromWhereItWasLeftInsteadOfOpening() {
+        let partlyWatched = MediaItem(id: "arrival", name: "Arrival", kind: .movie, userData: UserData(playbackPosition: .seconds(1_800)))
+        let continueWatching = RelatedMediaGroup(id: "resume", title: "Continue Watching", items: [partlyWatched], style: .inProgress)
+        var played: [(MediaItem.ID, Duration)] = []
+        let viewModel = MediaBrowsingViewModel(groups: [continueWatching]) { played.append(($0.id, $1)); _ = $2 }
+
+        viewModel.select(partlyWatched, in: viewModel.groups[0])
+
+        #expect(played.map(\.0) == ["arrival"])
+        #expect(played.map(\.1) == [.seconds(1_800)])
+        #expect(viewModel.openGroup == nil)
+    }
+
+    @Test func comingBackFromContinueWatchingOpensItsRowOnTheFullScreenCard() throws {
+        let partlyWatched = MediaItem(id: "arrival", name: "Arrival", kind: .movie, userData: UserData(playbackPosition: .seconds(1_800)))
+        let continueWatching = RelatedMediaGroup(id: "resume", title: "Continue Watching", items: [partlyWatched], style: .inProgress)
+        var showDetails: (() -> Void)?
+        let viewModel = MediaBrowsingViewModel(groups: [continueWatching]) { showDetails = $2; _ = ($0, $1) }
+        let row = viewModel.groups[0]
+
+        viewModel.select(partlyWatched, in: row)
+        let comeBack = try #require(showDetails)
+        comeBack()
+
+        #expect(viewModel.openGroup === row)
+        #expect(row.highlightedItem == "arrival")
+        #expect(row.highlightedCard?.viewState == .root)
+        // Still a poster until the row enters the preview, which takes the card straight to full screen.
+        #expect(viewModel.viewState == .root)
+    }
+
+    @Test func aCardsPlayStartsFromTheBeginning() throws {
+        var played: [(MediaItem.ID, Duration)] = []
+        var showsDetails = false
+        let viewModel = MediaBrowsingViewModel(groups: [group]) { played.append(($0.id, $1)); showsDetails = $2 != nil }
+
+        let play = try #require(viewModel.playsFromTheBeginning)
+        play(group.items[1])
+
+        #expect(played.map(\.0) == [group.items[1].id])
+        #expect(played.map(\.1) == [.zero])
+        // It plays from the detail view, which is behind the player already.
+        #expect(!showsDetails)
+    }
+
+    @Test func knowsWhichPostersPlayWhenSelected() {
+        let partlyWatched = MediaItem(id: "arrival", name: "Arrival", kind: .movie, userData: UserData(playbackPosition: .seconds(1_800)))
+        let continueWatching = RelatedMediaGroup(id: "resume", title: "Continue Watching", items: [partlyWatched], style: .inProgress)
+        let viewModel = MediaBrowsingViewModel(groups: [continueWatching, group]) { _, _, _ in }
+
+        #expect(viewModel.itemPlayedOnSelect(at: .poster("arrival", group: "resume")) == partlyWatched)
+        #expect(viewModel.itemPlayedOnSelect(at: .poster(group.items[0].id, group: "group")) == nil)
+        #expect(viewModel.itemPlayedOnSelect(at: nil) == nil)
+        #expect(MediaBrowsingViewModel(groups: [continueWatching]).itemPlayedOnSelect(at: .poster("arrival", group: "resume")) == nil)
+    }
+
+    @Test func playsNothingWithoutAWayToPlay() {
+        let viewModel = MediaBrowsingViewModel(groups: [group])
+        #expect(viewModel.playsFromTheBeginning == nil)
+    }
+
     @Test func ignoresASelectionWhileARowIsOpen() {
         let viewModel = MediaBrowsingViewModel(groups: [group])
         let first = viewModel.groups[0]

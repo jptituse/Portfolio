@@ -12,8 +12,8 @@ import SwiftUI
 /// in the same way from the left. Focus comes back to the button it was on.
 ///
 /// Right and › go round from the last banner to the first, and Left stops at the first, where it
-/// brings in the sidebar. It moves on by itself every `interval` while it's advancing, counting again
-/// from each move, until it reaches the last.
+/// brings in the sidebar. It moves on by itself every `interval` while it's advancing (Home has it
+/// advance only while focus is on it), counting again from each move, until it reaches the last.
 @MainActor
 @Observable
 final class HomeBannerViewModel {
@@ -49,7 +49,7 @@ final class HomeBannerViewModel {
     let interval: Duration
     /// The button focus was on last, where it lands coming back to the banner: from the rows, or once a
     /// banner has moved in.
-    private(set) var lastButton: HomeFocus = .bannerInfo
+    private(set) var lastButton: HomeFocus = .bannerPlay
 
     @ObservationIgnored private let images: (any MediaImageResolver)?
     @ObservationIgnored private let pipeline: ImagePipeline
@@ -249,6 +249,22 @@ final class HomeBannerViewModel {
             showsDetails = true
         } completion: {
             completion()
+        }
+    }
+
+    /// Makes the banner its item's full-screen detail view at once, with nothing moving: behind the
+    /// player as it closes, after playing from the banner's own buttons. Focus moves to the actions once
+    /// the player has gone. A motion started under the player never said it had finished, leaving the
+    /// banner moving for good, with focus on its hidden buttons.
+    func showDetailsAtOnce() {
+        guard !detailsAreAway else { return }
+        stopAdvancing()
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            detailsAreAway = true
+            detailsAreMoving = false
+            showsDetails = true
         }
     }
 

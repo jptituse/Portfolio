@@ -1,0 +1,28 @@
+import Observation
+import PortfolioShared
+import SwiftUI
+
+/// Plays one source at a time and shows its picture, whichever engine does it. Feature code drives
+/// playback through this, so only the engine's own module knows which engine that is.
+@MainActor
+public protocol PlaybackEngine: AnyObject, Observable {
+    /// What it's doing.
+    var status: PlaybackStatus { get }
+    /// Where playback is in the source.
+    var currentTime: Duration { get }
+    /// How long the source is: zero until it's known.
+    var duration: Duration { get }
+    /// The picture, filling the space it's given.
+    var surface: AnyView { get }
+
+    /// Opens `source`, in place of anything open before, ready to play from `position`.
+    ///
+    /// - Throws: why it couldn't be opened; `CancellationError` if another load or `stop()` took its
+    ///   place, or the task was cancelled.
+    func load(_ source: PlaybackSource, startingAt position: Duration) async throws
+    func play()
+    func pause()
+    func seek(to position: Duration) async
+    /// Ends the session and lets go of the source, its connections and the display mode it set.
+    func stop()
+}

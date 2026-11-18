@@ -38,9 +38,20 @@ final class MediaBrowsingViewModel {
     /// another closing.
     @ObservationIgnored private var closesOnceGrown = false
 
-    /// - Parameter images: where the items' artwork comes from.
-    init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil) {
+    @ObservationIgnored private let onPlay: PlayAction?
+
+    /// - Parameters:
+    ///   - images: where the items' artwork comes from.
+    ///   - onPlay: plays an item from a position. Without it, nothing plays.
+    init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil, onPlay: PlayAction? = nil) {
         self.groups = groups.map { RelatedMediaGroupViewModel(group: $0, images: images) }
+        self.onPlay = onPlay
+    }
+
+    /// Plays an item from the beginning, as a card's Play does, if anything plays. The card's detail view
+    /// is behind the player already.
+    var playsFromTheBeginning: ((MediaItem) -> Void)? {
+        onPlay.map { play in { play($0, .zero, nil) } }
     }
 
     /// Sets the screen the cards' artwork is fetched for: its scale, and its size in points, which is the
@@ -71,16 +82,50 @@ final class MediaBrowsingViewModel {
         return .poster(item, group: openGroup.id)
     }
 
+    /// The item a focused poster plays when it's selected, rather than opening its row: in a row of
+    /// what's in progress, such as Continue Watching, if anything plays.
+    func itemPlayedOnSelect(at focus: BrowsingFocus?) -> MediaItem? {
+        guard onPlay != nil, case .poster(let item, let groupID) = focus,
+              let group = groups.first(where: { $0.id == groupID }), group.isInProgress else { return nil }
+        return group.group.items.first { $0.id == item }
+    }
+
+    /// Where focus belongs while the open card fills the screen and its actions hold focus: on them.
+    var fullScreenActions: BrowsingFocus? {
+        guard let openGroup, openGroup.focusIsOnCards, openGroup.highlightedCard?.viewState == .root,
+              let item = openGroup.highlightedItem else { return nil }
+        return .detail(item)
+    }
+
     /// Whether Menu steps back through the open row. Otherwise it does what it always does.
     var canStepBack: Bool {
         openGroup != nil
     }
 
+    /// A poster was selected: its row opens on it. In a row of what's in progress, such as Continue
+    /// Watching, it plays instead, from where it was left, and the row opens on its full-screen card
+    /// behind the player as it closes.
     func select(_ item: MediaItem, in group: RelatedMediaGroupViewModel) {
         guard openGroup == nil else { return }
-        // FIXME: Selecting something in Continue Watching should start playing it from where it was
-        // left, rather than opening its card, once there's playback (#15).
+        if group.isInProgress, let onPlay {
+            onPlay(item, item.userData.playbackPosition) { [weak self, weak group] in
+                guard let self, let group else { return }
+                self.openOnFullScreenCard(item.id, in: group)
+            }
+            return
+        }
         group.willOpen(on: item.id)
+        openGroup = group
+    }
+
+    /// Opens `group`'s row straight onto `item`'s full-screen card, skipping the platter. The card's own
+    /// `viewState` is set to `.root` while it's still a poster, which changes nothing at the `.root`
+    /// layer; entering `.preview` then takes it straight to full screen. Back steps back to its platter,
+    /// as from any full-screen card.
+    func openOnFullScreenCard(_ item: MediaItem.ID, in group: RelatedMediaGroupViewModel) {
+        guard openGroup == nil else { return }
+        group.willOpen(on: item)
+        group.highlightedCard?.viewState = .root
         openGroup = group
     }
 
@@ -108,7 +153,8 @@ final class MediaBrowsingViewModel {
             // Widening it first would switch the card to its landscape art at once, with no fade.
             group.extendHighlightedPoster()
             group.focusIsOnCards = true
-            moveFocus(focus, to: .platter(item))
+            // A card that went straight to full screen gives focus to its actions.
+            moveFocus(focus, to: group.highlightedCard?.viewState == .root ? .detail(item) : .platter(item))
             withAnimation(MediaCardView.Metrics.labelFadeIn) { group.setLabelsShowing(true) }
         }
     }

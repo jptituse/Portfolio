@@ -3,6 +3,7 @@ import PortfolioShared
 /// Where focus is on Home, outside its rows: on the banner's buttons, or on the actions of the detail
 /// card its Info button opens.
 enum HomeFocus: Hashable {
+    case bannerPlay
     case bannerInfo
     case bannerNext
     /// Just left of the banner's buttons, where focus goes on Left while there's a banner before the

@@ -44,6 +44,16 @@ public struct ClientIdentity: Hashable, Sendable {
 
     static let deviceIDKey = "jellyfin.deviceID"
 
+    /// The `Authorization` header that signs a request in as this app, as the SDK sends it, for
+    /// requests made outside the SDK, such as the player's for a stream.
+    func authorizationHeader(accessToken: String?) -> String {
+        var fields = ["DeviceId=\(deviceID)", "Device=\(deviceName)", "Client=\(clientName)", "Version=\(version)"]
+        if let accessToken {
+            fields.append("Token=\(accessToken)")
+        }
+        return "MediaBrowser " + fields.joined(separator: ", ")
+    }
+
     /// Returns the stored device ID, generating and storing one on first use.
     static func persistentDeviceID(in defaults: UserDefaults) -> String {
         if let existing = defaults.string(forKey: deviceIDKey), !existing.isEmpty {
