@@ -9,6 +9,8 @@ enum LoadingFailure {
             "Couldn't reach \(server). Check that it's still running, and try again."
         case .unauthorized:
             "\(server) no longer accepts this sign-in. Switch profiles to sign in again."
+        case .cannotPlayDirectly:
+            "\(server) can't send this as it is, and playing it another way isn't supported yet."
         default:
             "\(server) ran into a problem \(activity). Try again in a moment."
         }

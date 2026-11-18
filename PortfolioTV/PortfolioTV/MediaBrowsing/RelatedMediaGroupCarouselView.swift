@@ -13,6 +13,7 @@ struct RelatedMediaGroupCarouselView: View {
     let globalFrame: CGRect
     var focus: FocusState<BrowsingFocus?>.Binding
     let onExpand: (MediaItem.ID) -> Void
+    let onPlay: ((MediaItem) -> Void)?
 
     @Environment(\.viewState) private var layer
 
@@ -23,6 +24,7 @@ struct RelatedMediaGroupCarouselView: View {
             globalFrame: globalFrame,
             focus: focus,
             onExpand: onExpand,
+            onPlay: onPlay,
             layer: layer,
             progress: layer == .preview ? 1 : 0,
             expansion: viewModel.openCardIsExpanded ? 1 : 0,

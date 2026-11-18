@@ -49,6 +49,8 @@ public final class MockJellyfinServer: Sendable {
         public var seriesID: String?
         public var seasonNumber: Int?
         public var episodeNumber: Int?
+        /// Whether the server would send its default version as it is to a client that plays it.
+        public var isDirectlyPlayable = true
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -122,6 +124,8 @@ public final class MockJellyfinServer: Sendable {
     public let librariesLeftOutOfLatest: [String]
 
     private let recorded = Mutex<[URLRequest]>([])
+    private let playbackInfoBodies = Mutex<[Data]>([])
+    private let reports = Mutex<[PlaybackReport]>([])
     private let itemStore: Mutex<[Item]>
     /// Access tokens the server currently accepts, and whose they are.
     private let sessions = Mutex<[String: Account]>([:])
@@ -171,6 +175,20 @@ public final class MockJellyfinServer: Sendable {
 
     /// Every request the server received, in order.
     public var requests: [URLRequest] { recorded.withLock { $0 } }
+
+    /// The bodies of the `PlaybackInfo` requests it got, in order: what each client said it can play.
+    public var playbackInfoRequests: [Data] { playbackInfoBodies.withLock { $0 } }
+
+    /// A client telling it playback started or stopped.
+    public struct PlaybackReport: Sendable {
+        public enum Kind: Sendable { case started, stopped }
+        public let kind: Kind
+        /// The report, as JSON.
+        public let body: Data
+    }
+
+    /// The playback reports it got, in order.
+    public var playbackReports: [PlaybackReport] { reports.withLock { $0 } }
 
     /// Access tokens the server currently accepts.
     public var activeTokens: Set<String> { sessions.withLock { Set($0.keys) } }
@@ -264,6 +282,17 @@ public final class MockJellyfinServer: Sendable {
             guard account(for: request) != nil else { return Response(status: 401) }
             let names = Set(matchingItems(for: request).flatMap(\.genres)).sorted()
             return Response(status: 200, json: ["Items": names.map { ["Id": Self.genreID($0), "Name": $0] }, "TotalRecordCount": names.count])
+        case ("POST", "/Sessions/Playing"), ("POST", "/Sessions/Playing/Stopped"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let kind: PlaybackReport.Kind = request.url?.path == "/Sessions/Playing" ? .started : .stopped
+            reports.withLock { $0.append(PlaybackReport(kind: kind, body: request.bodyData ?? Data())) }
+            return Response(status: 204)
+        case ("POST", let path) where path.hasPrefix("/Items/") && path.hasSuffix("/PlaybackInfo"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            if let body = request.bodyData { playbackInfoBodies.withLock { $0.append(body) } }
+            let itemID = path.split(separator: "/")[1]
+            guard let item = items.first(where: { $0.id == itemID }) else { return Response(status: 404) }
+            return Response(status: 200, json: playbackInfo(for: item))
         case ("GET", let path) where path.hasPrefix("/Items/"):
             // Images need no sign-in, as on a real server.
             return hasImage(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
@@ -271,6 +300,21 @@ public final class MockJellyfinServer: Sendable {
             return Response(status: 404)
         }
     }
+
+    /// The item's versions, its default first, as `PlaybackInfo` lists them: its own, and another the
+    /// app should never pick.
+    private func playbackInfo(for item: Item) -> [String: Any] {
+        let versions: [[String: Any]] = [
+            ["Id": item.id, "Container": "mkv", "Protocol": "File", "SupportsDirectPlay": item.isDirectlyPlayable,
+             "SupportsDirectStream": true, "SupportsTranscoding": true],
+            ["Id": "\(item.id)-other", "Container": "mp4", "Protocol": "File", "SupportsDirectPlay": true,
+             "SupportsDirectStream": true, "SupportsTranscoding": true],
+        ]
+        return ["MediaSources": versions, "PlaySessionId": Self.playSessionID]
+    }
+
+    /// The play session every `PlaybackInfo` answer names.
+    public static let playSessionID = "play-session-1"
 
     private func libraryJSON(_ library: Library) -> [String: Any] {
         var json: [String: Any] = ["Id": library.id, "Name": library.name, "Type": "CollectionFolder", "ServerId": id]

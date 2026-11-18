@@ -9,6 +9,8 @@ struct HomeView: View {
     let viewModel: HomeViewModel
     /// Whether Home is the section on screen. Sections stay alive while another one shows.
     let isShowing: Bool
+    /// Plays an item from a position.
+    let onPlay: PlayAction
 
     @State private var banner: HomeBannerViewModel
     @State private var safeArea = EdgeInsets()
@@ -18,10 +20,13 @@ struct HomeView: View {
     @State private var scrollToTopRequests = 0
     @FocusState private var focus: HomeFocus?
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.isPlayerUp) private var isPlayerUp
+    @Environment(\.preparePlayback) private var preparePlayback
 
-    init(viewModel: HomeViewModel, isShowing: Bool) {
+    init(viewModel: HomeViewModel, isShowing: Bool, onPlay: @escaping PlayAction) {
         self.viewModel = viewModel
         self.isShowing = isShowing
+        self.onPlay = onPlay
         _banner = State(initialValue: HomeBannerViewModel(images: viewModel.images))
     }
 
@@ -39,14 +44,14 @@ struct HomeView: View {
                 scrollToTopRequests += 1
             }
             switch focus {
-            case .bannerInfo, .bannerNext:
+            case .bannerPlay, .bannerInfo, .bannerNext:
                 if let focus { banner.buttonFocused(focus) }
             // Left or Right from the banner's buttons landed just past them: move to the banner that
             // way, focus coming back to the button it left. Coming from anywhere else, such as up
             // from the rows, focus only goes on to the button it was on last.
-            case .bannerLeftEdge where old == .bannerInfo || old == .bannerNext:
+            case .bannerLeftEdge where Self.isBannerButton(old):
                 banner.previous { returnFocus(to: banner.lastButton) }
-            case .bannerRightEdge where old == .bannerInfo || old == .bannerNext:
+            case .bannerRightEdge where Self.isBannerButton(old):
                 banner.next { returnFocus(to: banner.lastButton) }
             case .bannerLeftEdge, .bannerRightEdge:
                 returnFocus(to: banner.lastButton)
@@ -54,8 +59,22 @@ struct HomeView: View {
                 break
             }
         }
-        .onChange(of: isShowing, initial: true) { _, isShowing in
-            updateAdvancing(isShowing: isShowing)
+        // Played from the banner's own buttons, the banner opened its detail view behind the player as it
+        // closed, but focus couldn't move there until the player had gone.
+        .onChange(of: isPlayerUp) { _, isPlayerUp in
+            guard !isPlayerUp, banner.showsDetails, let item = banner.current else { return }
+            focus = .detail(item.id)
+        }
+        // Play on the banner starts sooner for having asked where its item plays from while it had focus.
+        .onChange(of: focus == .bannerPlay ? banner.current : nil) { _, item in
+            if let item { preparePlayback(item) }
+        }
+        .onChange(of: advances, initial: true) { _, advances in
+            if advances {
+                banner.startAdvancing()
+            } else {
+                banner.stopAdvancing()
+            }
         }
         .onExitCommand(perform: exitAction)
         .task(id: isShowing) {
@@ -70,19 +89,18 @@ struct HomeView: View {
         return { closeDetails() }
     }
 
-    private func updateAdvancing(isShowing: Bool) {
-        if isShowing, !banner.detailsAreAway {
-            banner.startAdvancing()
-        } else {
-            banner.stopAdvancing()
-        }
+    /// Whether the banner moves on by itself: only while focus is on it and it shows its own buttons.
+    /// Otherwise it holds still on the banner showing, such as while focus is in the rows or the
+    /// sidebar, or something plays over it.
+    private var advances: Bool {
+        isShowing && Self.isInBanner(focus) && !banner.detailsAreAway
     }
 
     @ViewBuilder private var content: some View {
         if viewModel.bannerItems.isEmpty && viewModel.groups.isEmpty {
             status
         } else if viewModel.bannerItems.isEmpty {
-            MediaBrowsingView(groups: viewModel.groups, images: viewModel.images) { EmptyView() }
+            MediaBrowsingView(groups: viewModel.groups, images: viewModel.images, onPlay: onPlay) { EmptyView() }
                 .id(viewModel.groups)
         } else {
             // The rows fade while the banner is its item's detail view, and the page holds still until
@@ -93,9 +111,18 @@ struct HomeView: View {
                 topPadding: 0,
                 scrollToTopRequests: scrollToTopRequests,
                 showsRows: !banner.showsDetails,
-                canScroll: !banner.detailsAreAway
+                canScroll: !banner.detailsAreAway,
+                onPlay: onPlay
             ) {
-                HomeBannerView(viewModel: banner, size: screen, safeArea: safeArea, focus: $focus, onInfo: openDetails, onNext: showNextBanner)
+                HomeBannerView(
+                    viewModel: banner,
+                    size: screen,
+                    safeArea: safeArea,
+                    focus: $focus,
+                    onPlay: play,
+                    onInfo: openDetails,
+                    onNext: showNextBanner
+                )
                     // To the screen's edges, past the safe area the browsing view keeps to.
                     .padding(.top, -safeArea.top)
                     .padding(.leading, -safeArea.leading)
@@ -130,6 +157,16 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The banner's Play, and its detail view's: plays the item from the beginning. Played from the
+    /// banner's own buttons, the banner becomes its detail view behind the player as it closes.
+    private func play(_ item: MediaItem) {
+        let showsDetails = banner.showsDetails
+        onPlay(item, .zero, showsDetails ? nil : {
+            guard banner.current?.id == item.id else { return }
+            banner.showDetailsAtOnce()
+        })
+    }
+
     /// Makes the banner its item's full-screen detail view: it moves its details and buttons to where a
     /// full-screen card has them, focus staying on Info, then focus moves to the actions.
     private func openDetails() {
@@ -161,10 +198,8 @@ struct HomeView: View {
     /// then focus returns to the button it was on last, and the banner moves on by itself again.
     private func closeDetails() {
         let focus = $focus
-        let isShowing = isShowing
         banner.hideDetails {
             moveFocus(focus, to: banner.lastButton)
-            if isShowing { banner.startAdvancing() }
         }
     }
 
@@ -180,6 +215,22 @@ struct HomeView: View {
 }
 
 extension HomeView {
+    /// Whether focus was on one of the banner's buttons, rather than coming from elsewhere.
+    static func isBannerButton(_ focus: HomeFocus?) -> Bool {
+        switch focus {
+        case .bannerPlay, .bannerInfo, .bannerNext: true
+        default: false
+        }
+    }
+
+    /// Whether focus is on the banner: on its buttons, or waiting beside them while banners move.
+    static func isInBanner(_ focus: HomeFocus?) -> Bool {
+        switch focus {
+        case .bannerLeftEdge, .bannerRightEdge: true
+        default: isBannerButton(focus)
+        }
+    }
+
     struct Metrics {
         static let statusSpacing: CGFloat = 24
         static let statusWidth: CGFloat = 1000
@@ -190,6 +241,6 @@ extension HomeView {
 
 #if DEBUG
 #Preview {
-    NavigationStack { HomeView(viewModel: .preview(), isShowing: true) }
+    NavigationStack { HomeView(viewModel: .preview(), isShowing: true) { _, _, _ in } }
 }
 #endif

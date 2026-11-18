@@ -106,6 +106,20 @@ struct HomeBannerViewModelTests {
         #expect(banner.showsDetails)
     }
 
+    @Test func becomesItsDetailViewAtOnceBehindThePlayer() {
+        let banner = banner()
+        banner.startAdvancing()
+
+        banner.showDetailsAtOnce()
+
+        #expect(banner.showsDetails)
+        #expect(banner.detailsAreAway)
+        // Settled already, so its own buttons don't hold on to focus.
+        #expect(!banner.detailsAreMoving)
+        #expect(!banner.buttonsTakeFocus)
+        #expect(!banner.isCountingDown)
+    }
+
     @Test func staysOnItsItemWhileShowingItsDetails() {
         let banner = banner()
         banner.showDetails {}
@@ -119,7 +133,7 @@ struct HomeBannerViewModelTests {
 
     @Test func remembersTheButtonFocusWasOnLast() {
         let banner = banner()
-        #expect(banner.lastButton == .bannerInfo)
+        #expect(banner.lastButton == .bannerPlay)
 
         banner.buttonFocused(.bannerNext)
 

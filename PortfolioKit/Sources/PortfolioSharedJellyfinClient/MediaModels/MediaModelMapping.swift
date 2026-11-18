@@ -10,6 +10,11 @@ extension Duration {
     init(ticks: Int) {
         self = .nanoseconds(Int64(ticks) * 100)
     }
+
+    /// The duration in ticks of 100 nanoseconds, rounded down.
+    var ticks: Int {
+        Int(components.seconds) * 10_000_000 + Int(components.attoseconds / 100_000_000_000)
+    }
 }
 
 /// An item's own images by kind. Jellyfin lists their tags by image type, and its backdrops' tags
