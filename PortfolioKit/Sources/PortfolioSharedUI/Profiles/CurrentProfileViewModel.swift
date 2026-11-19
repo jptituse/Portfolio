@@ -12,6 +12,8 @@ public final class CurrentProfileViewModel {
     @ObservationIgnored private let sessionManager: SessionManager
     /// Where items play from, found ahead of Play, by item.
     @ObservationIgnored private var preparedSources: [MediaItem.ID: PreparedSource] = [:]
+    /// Where the profile got to in what they've played here, for every card to show.
+    public let userDataUpdates = UserDataUpdates()
 
     init(client: JellyfinServerClient, sessionManager: SessionManager) {
         self.client = client
@@ -36,12 +38,12 @@ public final class CurrentProfileViewModel {
 
     /// The profile's Home, loading from their server.
     public func makeHomeViewModel() -> HomeViewModel {
-        HomeViewModel(client: client, session: sessionManager.state.session)
+        HomeViewModel(client: client, session: sessionManager.state.session, userDataUpdates: userDataUpdates)
     }
 
     /// The profile's libraries, loading from their server.
     public func makeLibrariesViewModel() -> LibrariesViewModel {
-        LibrariesViewModel(client: client, session: sessionManager.state.session)
+        LibrariesViewModel(client: client, session: sessionManager.state.session, userDataUpdates: userDataUpdates)
     }
 
     /// Asks the profile's server where `item` plays from ahead of time, such as once its detail view
@@ -56,19 +58,29 @@ public final class CurrentProfileViewModel {
         preparedSources[item.id] = PreparedSource(finding: finding, asked: now)
     }
 
-    /// A player for `item`, played from the profile's server as it is, starting at `position`. The
-    /// server hears when it starts and where it stops; a report that fails changes nothing on screen.
+    /// A player for `item`, played from the profile's server as it is, from the beginning or resuming.
+    /// Resuming starts where the server says the user got to when Play is pressed, wherever they
+    /// played it, or else where this app last knew. The server hears when it starts, where it is as it
+    /// plays and where it stops; a report that fails changes nothing on screen. Once it has stopped,
+    /// `userDataUpdates` has the server's word on where the user got to.
     /// Where it plays from was found already if it was prepared; if that failed, it's asked again.
     ///
     /// - Parameter makeEngine: the engine to play it in, of the app's choosing.
-    public func makePlayer(for item: MediaItem, startingAt position: Duration = .zero, makeEngine: () throws -> any PlaybackEngine) -> PlayerViewModel {
+    public func makePlayer(for item: MediaItem, from start: PlaybackStart = .beginning, makeEngine: () throws -> any PlaybackEngine) -> PlayerViewModel {
         let session = sessionManager.state.session
         let prepared = takePreparedSource(for: item.id)
+        // Asked at once, while where it plays from is found, so resuming doesn't wait for it.
+        let resumePosition = start == .resuming ? Task { [client, userDataUpdates] in
+            guard let session, let userData = try? await client.userData(for: item, session: session) else {
+                return userDataUpdates.userData(for: item).playbackPosition
+            }
+            return userData.playbackPosition
+        } : nil
         return PlayerViewModel(
             title: item.name,
             subtitle: PlayerViewModel.subtitle(for: item),
             makeEngine: makeEngine,
-            startingAt: position,
+            startingAt: { await resumePosition?.value ?? .zero },
             source: { [client] in
                 if let prepared, let found = try? await prepared.value { return found }
                 guard let session else { throw JellyfinError.unauthorized }
@@ -81,9 +93,17 @@ public final class CurrentProfileViewModel {
                 guard let session else { return }
                 try? await client.reportPlaybackStarted(of: item, from: source, at: position, session: session)
             },
-            reportStopped: { [client] source, position in
+            reportProgress: { [client] source, position, isPaused in
+                guard let session else { return }
+                try? await client.reportPlaybackProgress(of: item, from: source, at: position, isPaused: isPaused, session: session)
+            },
+            reportStopped: { [client, userDataUpdates] source, position in
                 guard let session else { return }
                 try? await client.reportPlaybackStopped(of: item, from: source, at: position, session: session)
+                // What the server made of it, such as whether it's watched now, for the cards to show.
+                if let userData = try? await client.userData(for: item, session: session) {
+                    userDataUpdates.update(userData, for: item.id)
+                }
             }
         )
     }

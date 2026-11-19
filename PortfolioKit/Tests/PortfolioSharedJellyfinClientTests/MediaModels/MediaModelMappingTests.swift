@@ -20,7 +20,8 @@ struct MediaModelMappingTests {
         #expect(item.genres == ["Drama", "Science Fiction"])
         #expect(item.images == [.primary: "p-4f1c", .logo: "l-9a2e", .thumb: "t-77b0", .backdrop(): "b-0d13", .backdrop(index: 1): "b-58aa"])
         #expect(item.primaryImageAspectRatio == 2.0 / 3)
-        #expect(item.userData == UserData(isPlayed: false, isFavorite: true, playbackPosition: .seconds(3600), playCount: 1))
+        let lastPlayed = try Date("2025-11-02T20:14:07Z", strategy: .iso8601)
+        #expect(item.userData == UserData(isPlayed: false, isFavorite: true, playbackPosition: .seconds(3600), playCount: 1, lastPlayed: lastPlayed))
     }
 
     @Test func mapsAnEpisodeWithItsPlaceInItsShow() throws {

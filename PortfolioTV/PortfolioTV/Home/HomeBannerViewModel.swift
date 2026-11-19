@@ -52,6 +52,7 @@ final class HomeBannerViewModel {
     private(set) var lastButton: HomeFocus = .bannerPlay
 
     @ObservationIgnored private let images: (any MediaImageResolver)?
+    @ObservationIgnored private let userDataUpdates: UserDataUpdates?
     @ObservationIgnored private let pipeline: ImagePipeline
     @ObservationIgnored private var cards: [MediaItem.ID: MediaCardViewModel] = [:]
     @ObservationIgnored private var screen: (scale: CGFloat, size: CGSize)?
@@ -60,10 +61,18 @@ final class HomeBannerViewModel {
     /// What to do once the text and buttons are back, after the move under way.
     @ObservationIgnored private var whenLabelsReturn: [() -> Void] = []
 
-    /// - Parameter interval: how long a banner shows before the next one slides in.
+    /// - Parameters:
+    ///   - userDataUpdates: where the user got to in what they've played since the items loaded.
+    ///   - interval: how long a banner shows before the next one slides in.
     // FIXME: Play each item's trailer, and move on once it ends, once trailers exist.
-    init(images: (any MediaImageResolver)?, pipeline: ImagePipeline = .shared, interval: Duration = .seconds(8)) {
+    init(
+        images: (any MediaImageResolver)?,
+        userDataUpdates: UserDataUpdates? = nil,
+        pipeline: ImagePipeline = .shared,
+        interval: Duration = .seconds(8)
+    ) {
         self.images = images
+        self.userDataUpdates = userDataUpdates
         self.pipeline = pipeline
         self.interval = interval
     }
@@ -108,11 +117,11 @@ final class HomeBannerViewModel {
         warmNextArtwork()
     }
 
-    /// The item's card: where its artwork is, and the full-screen card its Info button opens, which
-    /// shows the very same artwork.
+    /// The item's card: where its artwork is, whether Play resumes, and the full-screen card its Info
+    /// button opens, which shows the very same artwork.
     func card(for item: MediaItem) -> MediaCardViewModel {
         if let card = cards[item.id] { return card }
-        let card = MediaCardViewModel(item: item, images: images)
+        let card = MediaCardViewModel(item: item, images: images, userDataUpdates: userDataUpdates)
         setArtworkSizes(of: card)
         cards[item.id] = card
         return card

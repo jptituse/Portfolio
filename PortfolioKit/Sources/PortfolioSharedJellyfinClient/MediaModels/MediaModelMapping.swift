@@ -55,7 +55,8 @@ extension UserData {
             isPlayed: dto?.isPlayed ?? false,
             isFavorite: dto?.isFavorite ?? false,
             playbackPosition: dto?.playbackPositionTicks.map(Duration.init(ticks:)) ?? .zero,
-            playCount: dto?.playCount ?? 0
+            playCount: dto?.playCount ?? 0,
+            lastPlayed: dto?.lastPlayedDate
         )
     }
 }

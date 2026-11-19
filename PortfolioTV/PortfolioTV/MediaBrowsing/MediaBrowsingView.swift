@@ -28,6 +28,8 @@ struct MediaBrowsingView<Header: View>: View {
 
     /// - Parameters:
     ///   - images: where the items' artwork comes from. Without it, cards show a placeholder.
+    ///   - userDataUpdates: where the user got to in what they've played since the items loaded, which
+    ///     cards show over what the items loaded with.
     ///   - topPadding: room above the header, inside the safe area. A header that reaches the top of
     ///     the screen, such as Home's banner, has none, and draws past the safe area itself: nothing
     ///     here clips it.
@@ -36,11 +38,12 @@ struct MediaBrowsingView<Header: View>: View {
     ///     back there whenever the view updates, such as while a row opens or closes.
     ///   - showsRows: whether the rows show, under the header. They fade with the change.
     ///   - canScroll: whether the view scrolls, including to show what gets focus.
-    ///   - onPlay: plays an item from a position: from the beginning on its card, and where it was
-    ///     left from Continue Watching. Without it, nothing plays, as on the sample rows.
+    ///   - onPlay: plays an item, as its card's actions ask, and resuming from Continue Watching.
+    ///     Without it, nothing plays, as on the sample rows.
     init(
         groups: [RelatedMediaGroup],
         images: (any MediaImageResolver)? = nil,
+        userDataUpdates: UserDataUpdates? = nil,
         topPadding: CGFloat = Metrics.verticalPadding,
         scrollToTopRequests: Int = 0,
         showsRows: Bool = true,
@@ -48,7 +51,7 @@ struct MediaBrowsingView<Header: View>: View {
         onPlay: PlayAction? = nil,
         @ViewBuilder header: () -> Header
     ) {
-        _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups, images: images, onPlay: onPlay))
+        _viewModel = State(initialValue: MediaBrowsingViewModel(groups: groups, images: images, userDataUpdates: userDataUpdates, onPlay: onPlay))
         self.topPadding = topPadding
         self.scrollToTopRequests = scrollToTopRequests
         self.showsRows = showsRows
@@ -77,7 +80,7 @@ struct MediaBrowsingView<Header: View>: View {
                         globalFrame: proxy.frame(in: .global),
                         focus: $focus,
                         onExpand: { viewModel.expand($0, focus: $focus) },
-                        onPlay: viewModel.playsFromTheBeginning
+                        onPlay: viewModel.playsFromCards
                     )
                     // The cards appear exactly on top of their posters, so they must not fade in.
                     .transition(.identity)

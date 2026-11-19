@@ -13,8 +13,8 @@ struct MediaCardExpansionView<Focus: Hashable>: View {
     var focus: FocusState<Focus?>.Binding
     /// What focus is while it's on the card's actions.
     let actionsFocus: Focus
-    /// Plays the card's item from the beginning.
-    let onPlay: (MediaItem) -> Void
+    /// Plays the card's item, from the beginning or resuming.
+    let onPlay: (MediaItem, PlaybackStart) -> Void
 
     var body: some View {
         let frame = viewModel.frame(in: globalFrame)
@@ -24,7 +24,7 @@ struct MediaCardExpansionView<Focus: Hashable>: View {
                 .position(x: frame.midX, y: frame.midY)
 
             if viewModel.holdsFocus {
-                MediaDetailActionsView(item: card.item, focus: focus, focusValue: actionsFocus, onPlay: { onPlay(card.item) })
+                MediaDetailActionsView(card: card, focus: focus, focusValue: actionsFocus, onPlay: { onPlay(card.item, $0) })
                     .padding(.leading, MediaCardView.Metrics.fullScreenDetailsLeadingPadding)
                     .padding(.bottom, MediaCardView.Metrics.detailsBottomMargin)
                     .frame(width: globalFrame.width, height: globalFrame.height, alignment: .bottomLeading)

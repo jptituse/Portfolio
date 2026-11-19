@@ -13,7 +13,7 @@ struct RelatedMediaGroupCarouselView: View {
     let globalFrame: CGRect
     var focus: FocusState<BrowsingFocus?>.Binding
     let onExpand: (MediaItem.ID) -> Void
-    let onPlay: ((MediaItem) -> Void)?
+    let onPlay: ((MediaItem, PlaybackStart) -> Void)?
 
     @Environment(\.viewState) private var layer
 

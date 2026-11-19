@@ -6,7 +6,8 @@ import SwiftUI
 
 /// One thing playing: it finds where the media plays from, opens it in its engine and plays it, and
 /// says what's happening. Closing it stops the engine. Each player has an engine of its own. It tells
-/// the server when playback starts, and where it stopped.
+/// the server when playback starts, where it is every `progressInterval` and whenever it pauses or
+/// plays, and where it stopped.
 ///
 /// Its controls are a transport bar: they show on any press, and hide by themselves after
 /// `controlsTimeout` while it plays, staying while it's paused. Playing and pausing, and scrubbing
@@ -25,10 +26,16 @@ public final class PlayerViewModel: Identifiable {
 
     @ObservationIgnored private let engine: (any PlaybackEngine)?
     @ObservationIgnored private let source: () async throws -> PlaybackSource
-    @ObservationIgnored private let startPosition: Duration
+    @ObservationIgnored private let startPosition: () async -> Duration
     @ObservationIgnored private let describe: (any Error) -> String
     @ObservationIgnored private let reportStarted: ((PlaybackSource, Duration) async -> Void)?
+    @ObservationIgnored private let reportProgress: ((PlaybackSource, Duration, Bool) async -> Void)?
     @ObservationIgnored private let reportStopped: ((PlaybackSource, Duration) async -> Void)?
+    @ObservationIgnored private let progressInterval: Duration
+    /// The report sent last, which the next waits for.
+    @ObservationIgnored private var lastReport: Task<Void, Never>?
+    /// Reports where playback is every `progressInterval`, from when it starts until it closes.
+    @ObservationIgnored private var reportingProgress: Task<Void, Never>?
     @ObservationIgnored private var loading: Task<Void, Never>?
     /// What's playing, once it has started, until it stops.
     @ObservationIgnored private var playing: PlaybackSource?
@@ -52,29 +59,35 @@ public final class PlayerViewModel: Identifiable {
 
     /// - Parameters:
     ///   - makeEngine: the engine to play it in.
-    ///   - position: where to start in it.
+    ///   - position: finds where to start in it, once `source` has found where it plays from.
     ///   - source: finds where it plays from, such as by asking its server.
     ///   - describe: why `source` failed, in words.
     ///   - reportStarted: tells the server playback started from a source, at a position.
+    ///   - reportProgress: tells it where playback is, and whether it's paused.
     ///   - reportStopped: tells it where playback stopped.
     ///   - controlsTimeout: how long the controls stay while it plays and nothing is pressed.
+    ///   - progressInterval: how often it reports where playback is.
     init(
         title: String,
         subtitle: String? = nil,
         makeEngine: () throws -> any PlaybackEngine,
-        startingAt position: Duration = .zero,
+        startingAt position: @escaping () async -> Duration = { .zero },
         source: @escaping () async throws -> PlaybackSource,
         describe: @escaping (any Error) -> String,
         reportStarted: ((PlaybackSource, Duration) async -> Void)? = nil,
+        reportProgress: ((PlaybackSource, Duration, Bool) async -> Void)? = nil,
         reportStopped: ((PlaybackSource, Duration) async -> Void)? = nil,
-        controlsTimeout: Duration = PlayerViewModel.controlsTimeout
+        controlsTimeout: Duration = PlayerViewModel.controlsTimeout,
+        progressInterval: Duration = PlayerViewModel.progressInterval
     ) {
         self.title = title
         self.subtitle = subtitle
         self.controlsTimeout = controlsTimeout
+        self.progressInterval = progressInterval
         self.source = source
         self.describe = describe
         self.reportStarted = reportStarted
+        self.reportProgress = reportProgress
         self.reportStopped = reportStopped
         startPosition = position
         do {
@@ -85,7 +98,8 @@ public final class PlayerViewModel: Identifiable {
         }
     }
 
-    /// Plays `source` as it is, such as a test video, with nothing to ask a server first.
+    /// Plays `source` as it is from the beginning, such as a test video, with nothing to ask a server
+    /// first.
     public convenience init(title: String, source: PlaybackSource, makeEngine: () throws -> any PlaybackEngine) {
         self.init(title: title, makeEngine: makeEngine, source: { source }, describe: { _ in "Couldn't open \(title)." })
     }
@@ -147,11 +161,15 @@ public final class PlayerViewModel: Identifiable {
             defer { self?.isStarting = false }
             do {
                 let found = try await source()
-                try await engine.load(found, startingAt: startPosition)
+                let position = await startPosition()
+                try Task.checkCancellation()
+                try await engine.load(found, startingAt: position)
                 engine.play()
-                self?.isStarting = false
-                self?.playing = found
-                await reportStarted?(found, startPosition)
+                guard let self else { return }
+                isStarting = false
+                playing = found
+                if let reportStarted { send { await reportStarted(found, position) } }
+                startReportingProgress()
             } catch is CancellationError {
                 // Closed meanwhile.
             } catch {
@@ -232,6 +250,7 @@ public final class PlayerViewModel: Identifiable {
             engine.pause()
         }
         showControls()
+        sendProgress()
     }
 
     /// Moves playback to `target`, then plays or stays paused as it was asked: an engine can come out of
@@ -286,18 +305,52 @@ public final class PlayerViewModel: Identifiable {
     /// How long the controls stay while it plays and nothing is pressed.
     public nonisolated static let controlsTimeout = Duration.seconds(5)
 
-    /// Stops playing, and lets go of the media. If it had started, the server hears where it stopped.
-    /// Closing again does nothing.
+    // MARK: Reports
+
+    /// How often it tells the server where playback is, as Jellyfin's web client does.
+    public nonisolated static let progressInterval = Duration.seconds(10)
+
+    /// Sends `report` once the reports before it have gone, so the server hears them in order: it saves
+    /// the position from each, and a report arriving after the one saying it stopped would undo it.
+    private func send(_ report: @escaping () async -> Void) {
+        let previous = lastReport
+        lastReport = Task {
+            await previous?.value
+            await report()
+        }
+    }
+
+    /// Tells the server where playback is, and whether it's paused, once it has started.
+    private func sendProgress() {
+        guard let playing, let reportProgress else { return }
+        let position = playbackPosition
+        let isPaused = isPaused
+        send { await reportProgress(playing, position, isPaused) }
+    }
+
+    private func startReportingProgress() {
+        reportingProgress = Task { [weak self, progressInterval] in
+            while true {
+                do { try await Task.sleep(for: progressInterval) } catch { return }
+                guard let self else { return }
+                sendProgress()
+            }
+        }
+    }
+
+    /// Stops playing, and lets go of the media. If it had started, the server hears where it stopped:
+    /// the end, if it played to the end. Closing again does nothing.
     public func close() {
         guard !isClosed else { return }
         isClosed = true
         hidingControls?.cancel()
         loading?.cancel()
-        let position = engine?.currentTime ?? .zero
+        reportingProgress?.cancel()
+        let position = hasEnded ? duration : engine?.currentTime ?? .zero
         engine?.stop()
         if let playing, let reportStopped {
             self.playing = nil
-            Task { await reportStopped(playing, position) }
+            send { await reportStopped(playing, position) }
         }
     }
 

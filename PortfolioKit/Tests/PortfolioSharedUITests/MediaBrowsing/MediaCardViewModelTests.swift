@@ -207,6 +207,7 @@ struct MediaCardViewModelTests {
         let card = card(runtime: 100, watched: 25)
         #expect(card.progress == 0.25)
         #expect(card.timeLeftLabel == "1h 15m left")
+        #expect(card.timeRemainingLabel == "1h 15m")
     }
 
     @Test func showsNoProgressForAnItemNotStartedYet() {
@@ -224,6 +225,32 @@ struct MediaCardViewModelTests {
 
     @Test func showsNoTimeLeftWithoutAKnownLength() {
         #expect(card(runtime: nil).timeLeftLabel == nil)
+    }
+
+    @Test func playsFromTheBeginningWhenTheresNowhereToResumeFrom() {
+        let card = card(runtime: 100)
+        #expect(!card.canResume)
+        #expect(card.playLabel == "Play")
+        #expect(card.playStart == .beginning)
+    }
+
+    @Test func resumesWhereTheUserLeftOff() {
+        let card = card(runtime: 100, watched: 25)
+        #expect(card.canResume)
+        #expect(card.playLabel == "Resume")
+        #expect(card.playStart == .resuming)
+    }
+
+    @Test func showsWhereTheUserGotToInWhatTheyPlayedSinceItLoaded() {
+        let updates = UserDataUpdates()
+        let item = MediaItem(id: "item", name: "Item", kind: .movie, runtime: .seconds(100 * 60))
+        let card = MediaCardViewModel(item: item, userDataUpdates: updates)
+
+        updates.update(UserData(playbackPosition: .seconds(40 * 60), lastPlayed: .now), for: item.id)
+
+        #expect(card.canResume)
+        #expect(card.progress == 0.4)
+        #expect(card.timeLeftLabel == "1h left")
     }
 
     @Test(arguments: [

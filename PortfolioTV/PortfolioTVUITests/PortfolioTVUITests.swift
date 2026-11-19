@@ -309,9 +309,9 @@ final class AppNavigationUITests: XCTestCase {
             XCTAssertTrue(fullScreenDetail.waitForExistence(timeout: 5), "Down didn't expand the platter in \(tab)")
             XCTAssertTrue(app.staticTexts["Sample Movie 2"].exists)
 
-            // Go deeper pushes plain detail views on top. Every platter shows the actions too, so this is
-            // the full-screen card's.
-            focus(fullScreenDetail.buttons["Go deeper"], moving: .right, orElse: .down)
+            // Information pushes plain detail views on top. Every platter shows the actions too, so this
+            // is the full-screen card's.
+            focus(fullScreenDetail.buttons["Information"], moving: .right, orElse: .down)
             press(.select)
             XCTAssertTrue(app.staticTexts["Detail view 1"].waitForExistence(timeout: 5), "Couldn't go deeper in \(tab)")
 
@@ -384,7 +384,7 @@ final class AppNavigationUITests: XCTestCase {
         press(.select)
         XCTAssertTrue(fullScreenDetail.waitForExistence(timeout: 5), "Select didn't expand the platter")
         XCTAssertTrue(app.staticTexts["Sample Movie 1"].exists)
-        focus(fullScreenDetail.buttons["Go deeper"], moving: .right, orElse: .down)
+        focus(fullScreenDetail.buttons["Information"], moving: .right, orElse: .down)
         for _ in 0..<4 where !sidebarHasFocus() {
             press(.left)
         }

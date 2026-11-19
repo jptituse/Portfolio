@@ -14,15 +14,21 @@ struct PlayerViewModelTests {
 
     let reports = Reports()
 
-    func player(startingAt position: Duration = .zero, source: @escaping () async throws -> PlaybackSource) -> PlayerViewModel {
+    func player(
+        startingAt position: Duration = .zero,
+        progressInterval: Duration = .seconds(60),
+        source: @escaping () async throws -> PlaybackSource
+    ) -> PlayerViewModel {
         PlayerViewModel(
             title: "Arrival",
             makeEngine: { engine },
-            startingAt: position,
+            startingAt: { position },
             source: source,
             describe: { _ in "Couldn't reach Living Room." },
             reportStarted: { [reports] in reports.started.append(($0, $1)) },
-            reportStopped: { [reports] in reports.stopped.append(($0, $1)) }
+            reportProgress: { [reports] in reports.progress.append(($0, $1, $2)) },
+            reportStopped: { [reports] in reports.stopped.append(($0, $1)) },
+            progressInterval: progressInterval
         )
     }
 
@@ -148,6 +154,99 @@ struct PlayerViewModelTests {
 
         #expect(reports.stopped.map(\.source) == [stream])
         #expect(reports.stopped.map(\.position) == [.seconds(600)])
+    }
+
+    @Test func reportsWherePlaybackIsAsItPlays() async {
+        let player = player(progressInterval: .milliseconds(20)) { stream }
+        player.start()
+        await waitUntil { !reports.started.isEmpty }
+        engine.currentTime = .seconds(120)
+
+        await waitUntil { reports.progress.count >= 2 }
+
+        #expect(reports.progress.last?.source == stream)
+        #expect(reports.progress.last?.position == .seconds(120))
+        #expect(reports.progress.last?.isPaused == false)
+    }
+
+    @Test func reportsPausingAndPlayingAtOnce() async {
+        let player = player { stream }
+        player.start()
+        await waitUntil { !reports.started.isEmpty }
+        engine.currentTime = .seconds(300)
+
+        player.togglePlayPause()
+        await waitUntil { reports.progress.count == 1 }
+        player.togglePlayPause()
+        await waitUntil { reports.progress.count == 2 }
+
+        #expect(reports.progress.map(\.position) == [.seconds(300), .seconds(300)])
+        #expect(reports.progress.map(\.isPaused) == [true, false])
+    }
+
+    @Test func reportsPlayingFromTheSpotPickedAtOnce() async {
+        let player = player { stream }
+        player.start()
+        await waitUntil { !reports.started.isEmpty }
+        engine.duration = .seconds(1_000)
+        player.togglePlayPause()
+        player.beginScrubbing()
+        player.scrub(to: 0.5)
+
+        player.togglePlayPause()
+        await waitUntil { reports.progress.count == 2 }
+
+        #expect(reports.progress.last?.position == .seconds(500))
+        #expect(reports.progress.last?.isPaused == false)
+    }
+
+    @Test func stopsReportingWhereItIsOnceClosed() async throws {
+        let player = player(progressInterval: .milliseconds(20)) { stream }
+        player.start()
+        await waitUntil { !reports.progress.isEmpty }
+
+        player.close()
+        await waitUntil { !reports.stopped.isEmpty }
+        let reported = reports.progress.count
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(reports.progress.count == reported)
+    }
+
+    @Test func reportsInTheOrderItSendsThem() async {
+        let slow = SlowReports()
+        let player = PlayerViewModel(
+            title: "Arrival",
+            makeEngine: { engine },
+            source: { stream },
+            describe: { _ in "" },
+            reportStarted: { _, _ in await slow.record("started") },
+            reportProgress: { _, _, isPaused in await slow.record(isPaused ? "paused" : "playing") },
+            reportStopped: { _, _ in await slow.record("stopped") }
+        )
+        player.start()
+        await waitUntil { engine.isPlaying }
+
+        player.togglePlayPause()
+        player.togglePlayPause()
+        player.close()
+        await waitUntil { slow.received.count == 4 }
+
+        #expect(slow.received == ["started", "paused", "playing", "stopped"])
+    }
+
+    @Test func reportsStoppingAtTheEndWhenItPlayedToTheEnd() async {
+        let player = player { stream }
+        player.start()
+        await waitUntil { !reports.started.isEmpty }
+        engine.duration = .seconds(5_400)
+        engine.currentTime = .seconds(5_398)
+
+        engine.status = .ended
+        player.close()
+        await waitUntil { !reports.stopped.isEmpty }
+
+        #expect(reports.stopped.map(\.position) == [.seconds(5_400)])
     }
 
     @Test func closesOnce() async {
@@ -373,44 +472,90 @@ struct PlayerViewModelTests {
 
     // MARK: From the profile's server
 
-    @Test func playsAnItemFromTheProfilesServerAsItIs() async throws {
-        let arrival = MockJellyfinServer.Item(name: "Arrival")
-        let mock = MockJellyfinServer(items: [arrival])
+    /// The profile of someone signed in to `mock`.
+    func profile(on mock: MockJellyfinServer) async throws -> CurrentProfileViewModel {
         let client = JellyfinServerClient.mocked
         let sessionManager = SessionManager(store: MediaServerStore(storage: InMemorySecureStorage()), authority: client)
         let server = try await client.validateServer(at: mock.url)
         try sessionManager.signIn(try await client.signIn(to: server, username: "alex", password: "hunter2"))
-        let profile = CurrentProfileViewModel(client: client, sessionManager: sessionManager)
+        return CurrentProfileViewModel(client: client, sessionManager: sessionManager)
+    }
 
-        let player = profile.makePlayer(for: MediaItem(id: arrival.id, name: "Arrival", kind: .movie), startingAt: .seconds(60)) { engine }
+    @Test func playsAnItemFromTheProfilesServerAsItIs() async throws {
+        let arrival = MockJellyfinServer.Item(name: "Arrival")
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+
+        let player = profile.makePlayer(for: MediaItem(id: arrival.id, name: "Arrival", kind: .movie)) { engine }
         player.start()
         await waitUntil { engine.isPlaying }
 
         let load = try #require(engine.loads.first)
         #expect(load.source.url.path() == "/Videos/\(arrival.id)/stream")
         #expect(load.source.httpHeaders["Authorization"]?.contains("Token=") == true)
-        #expect(load.position == .seconds(60))
+        #expect(load.position == .zero)
 
-        // The server hears it start, and where it stopped.
-        for _ in 0..<200 where mock.playbackReports.isEmpty {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        // The server hears it start, where it is when it pauses, and where it stopped.
+        await waitUntil { !mock.playbackReports.isEmpty }
         engine.currentTime = .seconds(75)
+        player.togglePlayPause()
         player.close()
-        for _ in 0..<200 where mock.playbackReports.count < 2 {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(mock.playbackReports.map(\.kind) == [.started, .stopped])
+        await waitUntil { mock.playbackReports.count == 3 }
+        #expect(mock.playbackReports.map(\.kind) == [.started, .progress, .stopped])
+    }
+
+    @Test func resumesWhereTheServerSaysTheUserGotToWhenPlayIsPressed() async throws {
+        var arrival = MockJellyfinServer.Item(name: "Arrival")
+        arrival.watchedMinutes = 25
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+        // Loaded before they watched more of it somewhere else.
+        let item = MediaItem(id: arrival.id, name: "Arrival", kind: .movie, userData: UserData(playbackPosition: .seconds(600)))
+
+        let player = profile.makePlayer(for: item, from: .resuming) { engine }
+        player.start()
+        await waitUntil { engine.isPlaying }
+
+        #expect(engine.loads.map(\.position) == [.seconds(25 * 60)])
+    }
+
+    @Test func startsFromTheBeginningWhenAskedToWhereverTheUserGotTo() async throws {
+        var arrival = MockJellyfinServer.Item(name: "Arrival")
+        arrival.watchedMinutes = 25
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+        let item = MediaItem(id: arrival.id, name: "Arrival", kind: .movie, userData: UserData(playbackPosition: .seconds(25 * 60)))
+
+        let player = profile.makePlayer(for: item, from: .beginning) { engine }
+        player.start()
+        await waitUntil { engine.isPlaying }
+
+        #expect(engine.loads.map(\.position) == [.zero])
+    }
+
+    @Test func knowsWhereTheUserGotToOnceItHasStopped() async throws {
+        let arrival = MockJellyfinServer.Item(name: "Arrival")
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+        let item = MediaItem(id: arrival.id, name: "Arrival", kind: .movie)
+        let player = profile.makePlayer(for: item) { engine }
+        player.start()
+        await waitUntil { engine.isPlaying }
+        #expect(!profile.userDataUpdates.userData(for: item).canResume)
+
+        // Where the server saves it, as it hears playback stop.
+        mock.items[0].watchedMinutes = 42
+        mock.items[0].lastPlayed = .now
+        player.close()
+        await waitUntil { profile.userDataUpdates.userData(for: item).canResume }
+
+        #expect(profile.userDataUpdates.userData(for: item).playbackPosition == .seconds(42 * 60))
     }
 
     @Test func playsFromWhatWasFoundAheadOfTime() async throws {
         let arrival = MockJellyfinServer.Item(name: "Arrival")
         let mock = MockJellyfinServer(items: [arrival])
-        let client = JellyfinServerClient.mocked
-        let sessionManager = SessionManager(store: MediaServerStore(storage: InMemorySecureStorage()), authority: client)
-        let server = try await client.validateServer(at: mock.url)
-        try sessionManager.signIn(try await client.signIn(to: server, username: "alex", password: "hunter2"))
-        let profile = CurrentProfileViewModel(client: client, sessionManager: sessionManager)
+        let profile = try await profile(on: mock)
         let item = MediaItem(id: arrival.id, name: "Arrival", kind: .movie)
 
         profile.preparePlayback(of: item)
@@ -441,11 +586,7 @@ struct PlayerViewModelTests {
         var arrival = MockJellyfinServer.Item(name: "Arrival")
         arrival.isDirectlyPlayable = false
         let mock = MockJellyfinServer(name: "Living Room", items: [arrival])
-        let client = JellyfinServerClient.mocked
-        let sessionManager = SessionManager(store: MediaServerStore(storage: InMemorySecureStorage()), authority: client)
-        let server = try await client.validateServer(at: mock.url)
-        try sessionManager.signIn(try await client.signIn(to: server, username: "alex", password: "hunter2"))
-        let profile = CurrentProfileViewModel(client: client, sessionManager: sessionManager)
+        let profile = try await profile(on: mock)
 
         let player = profile.makePlayer(for: MediaItem(id: arrival.id, name: "Arrival", kind: .movie)) { engine }
         player.start()
@@ -459,5 +600,19 @@ struct PlayerViewModelTests {
 @MainActor
 final class Reports {
     var started: [(source: PlaybackSource, position: Duration)] = []
+    var progress: [(source: PlaybackSource, position: Duration, isPaused: Bool)] = []
     var stopped: [(source: PlaybackSource, position: Duration)] = []
+}
+
+/// Reports that each take a while to reach the server, the first longest, as over a slow network.
+@MainActor
+final class SlowReports {
+    private(set) var received: [String] = []
+    private var sent = 0
+
+    func record(_ report: String) async {
+        sent += 1
+        try? await Task.sleep(for: .milliseconds(sent == 1 ? 50 : 10))
+        received.append(report)
+    }
 }

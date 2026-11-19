@@ -9,7 +9,7 @@ struct HomeView: View {
     let viewModel: HomeViewModel
     /// Whether Home is the section on screen. Sections stay alive while another one shows.
     let isShowing: Bool
-    /// Plays an item from a position.
+    /// Plays an item, from the beginning or resuming.
     let onPlay: PlayAction
 
     @State private var banner: HomeBannerViewModel
@@ -27,7 +27,7 @@ struct HomeView: View {
         self.viewModel = viewModel
         self.isShowing = isShowing
         self.onPlay = onPlay
-        _banner = State(initialValue: HomeBannerViewModel(images: viewModel.images))
+        _banner = State(initialValue: HomeBannerViewModel(images: viewModel.images, userDataUpdates: viewModel.userDataUpdates))
     }
 
     var body: some View {
@@ -100,7 +100,9 @@ struct HomeView: View {
         if viewModel.bannerItems.isEmpty && viewModel.groups.isEmpty {
             status
         } else if viewModel.bannerItems.isEmpty {
-            MediaBrowsingView(groups: viewModel.groups, images: viewModel.images, onPlay: onPlay) { EmptyView() }
+            MediaBrowsingView(groups: viewModel.groups, images: viewModel.images, userDataUpdates: viewModel.userDataUpdates, onPlay: onPlay) {
+                EmptyView()
+            }
                 .id(viewModel.groups)
         } else {
             // The rows fade while the banner is its item's detail view, and the page holds still until
@@ -108,6 +110,7 @@ struct HomeView: View {
             MediaBrowsingView(
                 groups: viewModel.groups,
                 images: viewModel.images,
+                userDataUpdates: viewModel.userDataUpdates,
                 topPadding: 0,
                 scrollToTopRequests: scrollToTopRequests,
                 showsRows: !banner.showsDetails,
@@ -157,11 +160,12 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The banner's Play, and its detail view's: plays the item from the beginning. Played from the
-    /// banner's own buttons, the banner becomes its detail view behind the player as it closes.
-    private func play(_ item: MediaItem) {
+    /// The banner's Play, and its detail view's actions: plays the item, from the beginning or resuming.
+    /// Played from the banner's own buttons, the banner becomes its detail view behind the player as it
+    /// closes.
+    private func play(_ item: MediaItem, from start: PlaybackStart) {
         let showsDetails = banner.showsDetails
-        onPlay(item, .zero, showsDetails ? nil : {
+        onPlay(item, start, showsDetails ? nil : {
             guard banner.current?.id == item.id else { return }
             banner.showDetailsAtOnce()
         })

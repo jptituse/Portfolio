@@ -1,3 +1,4 @@
+import Foundation
 import PortfolioShared
 import PortfolioSharedUI
 import Testing
@@ -27,16 +28,16 @@ struct MediaBrowsingViewModelTests {
         #expect(viewModel.viewState == .root)
     }
 
-    @Test func continueWatchingPlaysFromWhereItWasLeftInsteadOfOpening() {
+    @Test func continueWatchingResumesInsteadOfOpening() {
         let partlyWatched = MediaItem(id: "arrival", name: "Arrival", kind: .movie, userData: UserData(playbackPosition: .seconds(1_800)))
         let continueWatching = RelatedMediaGroup(id: "resume", title: "Continue Watching", items: [partlyWatched], style: .inProgress)
-        var played: [(MediaItem.ID, Duration)] = []
+        var played: [(MediaItem.ID, PlaybackStart)] = []
         let viewModel = MediaBrowsingViewModel(groups: [continueWatching]) { played.append(($0.id, $1)); _ = $2 }
 
         viewModel.select(partlyWatched, in: viewModel.groups[0])
 
         #expect(played.map(\.0) == ["arrival"])
-        #expect(played.map(\.1) == [.seconds(1_800)])
+        #expect(played.map(\.1) == [.resuming])
         #expect(viewModel.openGroup == nil)
     }
 
@@ -58,18 +59,32 @@ struct MediaBrowsingViewModelTests {
         #expect(viewModel.viewState == .root)
     }
 
-    @Test func aCardsPlayStartsFromTheBeginning() throws {
-        var played: [(MediaItem.ID, Duration)] = []
+    @Test func aCardsActionsPlayFromWhereTheyAsk() throws {
+        var played: [(MediaItem.ID, PlaybackStart)] = []
         var showsDetails = false
         let viewModel = MediaBrowsingViewModel(groups: [group]) { played.append(($0.id, $1)); showsDetails = $2 != nil }
 
-        let play = try #require(viewModel.playsFromTheBeginning)
-        play(group.items[1])
+        let play = try #require(viewModel.playsFromCards)
+        play(group.items[1], .beginning)
+        play(group.items[1], .resuming)
 
-        #expect(played.map(\.0) == [group.items[1].id])
-        #expect(played.map(\.1) == [.zero])
+        #expect(played.map(\.0) == [group.items[1].id, group.items[1].id])
+        #expect(played.map(\.1) == [.beginning, .resuming])
         // It plays from the detail view, which is behind the player already.
         #expect(!showsDetails)
+    }
+
+    @Test func cardsShowWhereTheUserGotToInWhatTheyPlayedSinceTheRowsLoaded() {
+        let updates = UserDataUpdates()
+        let viewModel = MediaBrowsingViewModel(groups: [group], userDataUpdates: updates)
+        let item = group.items[0]
+        let card = viewModel.groups[0].card(for: item)
+        #expect(card.playLabel == "Play")
+
+        updates.update(UserData(playbackPosition: .seconds(600), lastPlayed: .now), for: item.id)
+
+        #expect(card.playLabel == "Resume")
+        #expect(card.playStart == .resuming)
     }
 
     @Test func knowsWhichPostersPlayWhenSelected() {
@@ -85,7 +100,7 @@ struct MediaBrowsingViewModelTests {
 
     @Test func playsNothingWithoutAWayToPlay() {
         let viewModel = MediaBrowsingViewModel(groups: [group])
-        #expect(viewModel.playsFromTheBeginning == nil)
+        #expect(viewModel.playsFromCards == nil)
     }
 
     @Test func ignoresASelectionWhileARowIsOpen() {

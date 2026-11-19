@@ -12,7 +12,7 @@ struct LibraryView: View {
     let viewModel: LibraryViewModel
     /// Whether this library is the section on screen. Sections stay alive while another one shows.
     let isShowing: Bool
-    /// Plays an item from a position.
+    /// Plays an item, from the beginning or resuming.
     let onPlay: PlayAction
 
     @Environment(\.displayScale) private var displayScale
@@ -44,7 +44,7 @@ struct LibraryView: View {
                         globalFrame: proxy.frame(in: .global),
                         focus: $focus,
                         actionsFocus: .detail(card.item.id),
-                        onPlay: { onPlay($0, .zero, nil) }
+                        onPlay: { onPlay($0, $1, nil) }
                     )
                     // The card appears exactly on top of its poster, so it must not fade in.
                     .transition(.identity)
