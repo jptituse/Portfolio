@@ -15,8 +15,8 @@ struct HomeBannerView: View {
     /// The screen's safe area, which the text keeps within.
     let safeArea: EdgeInsets
     var focus: FocusState<HomeFocus?>.Binding
-    /// Plays an item from the beginning.
-    let onPlay: (MediaItem) -> Void
+    /// Plays an item, from the beginning or resuming.
+    let onPlay: (MediaItem, PlaybackStart) -> Void
     let onInfo: () -> Void
     let onNext: () -> Void
 
@@ -121,26 +121,29 @@ struct HomeBannerView: View {
                 .padding(.bottom, MediaCardView.Metrics.actionsReservedHeight)
                 .opacity(viewModel.showsLabels ? 1 : 0)
             buttons(for: item)
-            MediaDetailActionsView(item: item, focus: focus, focusValue: HomeFocus.detail(item.id), isActive: viewModel.detailsAreAway, onPlay: { onPlay(item) })
+            MediaDetailActionsView(card: viewModel.card(for: item), focus: focus, focusValue: HomeFocus.detail(item.id), isActive: viewModel.detailsAreAway, onPlay: { onPlay(item, $0) })
                 .opacity(viewModel.showsDetails ? 1 : viewModel.detailsAreAway ? Metrics.focusableOpacity : 0)
         }
     }
 
-    /// Play, Info and next. They, and what catches Left and Right, fade only as far as
-    /// `focusableOpacity`, too faint to see: focus can't move to, or stay on, something faded out
-    /// entirely, and it stays on the button it's on.
+    /// Play (or Resume, where the user left off), Info and next. They, and what catches Left and Right,
+    /// fade only as far as `focusableOpacity`, too faint to see: focus can't move to, or stay on,
+    /// something faded out entirely, and it stays on the button it's on.
     private func buttons(for item: MediaItem) -> some View {
         let opacity: Double = viewModel.showsLabels && !viewModel.showsDetails ? 1 : Metrics.focusableOpacity
+        let card = viewModel.card(for: item)
         return HStack(spacing: Metrics.buttonSpacing) {
             // Left and Right from the buttons move between banners; Left from the first brings in the
             // sidebar, and Right from the last goes round to the first. Handling the move doesn't stop
             // tvOS moving focus into the sidebar, so while there's a banner either way, something
             // focusable waits on that side to catch the move instead, right beside the buttons.
             edgeCatcher(.bannerLeftEdge, isActive: viewModel.hasPrevious)
-            Button("Play", systemImage: "play.fill") { onPlay(item) }
-                .focused(focus, equals: .bannerPlay)
-                .accessibilityIdentifier("home.banner.play")
-                .opacity(opacity)
+            Button { onPlay(item, card.playStart) } label: {
+                PlayLabelView(card: card)
+            }
+            .focused(focus, equals: .bannerPlay)
+            .accessibilityIdentifier("home.banner.play")
+            .opacity(opacity)
             Button("Info", systemImage: "info.circle", action: onInfo)
                 .labelStyle(.iconOnly)
                 .focused(focus, equals: .bannerInfo)

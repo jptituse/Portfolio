@@ -42,16 +42,22 @@ final class MediaBrowsingViewModel {
 
     /// - Parameters:
     ///   - images: where the items' artwork comes from.
-    ///   - onPlay: plays an item from a position. Without it, nothing plays.
-    init(groups: [RelatedMediaGroup], images: (any MediaImageResolver)? = nil, onPlay: PlayAction? = nil) {
-        self.groups = groups.map { RelatedMediaGroupViewModel(group: $0, images: images) }
+    ///   - userDataUpdates: where the user got to in what they've played since the items loaded.
+    ///   - onPlay: plays an item, from the beginning or resuming. Without it, nothing plays.
+    init(
+        groups: [RelatedMediaGroup],
+        images: (any MediaImageResolver)? = nil,
+        userDataUpdates: UserDataUpdates? = nil,
+        onPlay: PlayAction? = nil
+    ) {
+        self.groups = groups.map { RelatedMediaGroupViewModel(group: $0, images: images, userDataUpdates: userDataUpdates) }
         self.onPlay = onPlay
     }
 
-    /// Plays an item from the beginning, as a card's Play does, if anything plays. The card's detail view
-    /// is behind the player already.
-    var playsFromTheBeginning: ((MediaItem) -> Void)? {
-        onPlay.map { play in { play($0, .zero, nil) } }
+    /// Plays an item as a card's actions ask, if anything plays. The card's detail view is behind the
+    /// player already.
+    var playsFromCards: ((MediaItem, PlaybackStart) -> Void)? {
+        onPlay.map { play in { play($0, $1, nil) } }
     }
 
     /// Sets the screen the cards' artwork is fetched for: its scale, and its size in points, which is the
@@ -108,7 +114,7 @@ final class MediaBrowsingViewModel {
     func select(_ item: MediaItem, in group: RelatedMediaGroupViewModel) {
         guard openGroup == nil else { return }
         if group.isInProgress, let onPlay {
-            onPlay(item, item.userData.playbackPosition) { [weak self, weak group] in
+            onPlay(item, .resuming) { [weak self, weak group] in
                 guard let self, let group else { return }
                 self.openOnFullScreenCard(item.id, in: group)
             }

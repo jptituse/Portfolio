@@ -39,7 +39,7 @@ extension JellyfinServerClient {
     }
 
     /// Tells the server `item` started playing from `source` at `position`, played as it is, so it
-    /// shows among the user's sessions.
+    /// shows among the user's sessions. The server stamps the item as last played now.
     ///
     /// - Throws: as `playbackSource(for:session:)`, but `cannotPlayDirectly`.
     public func reportPlaybackStarted(of item: MediaItem, from source: PlaybackSource, at position: Duration, session: UserSession) async throws {
@@ -56,6 +56,39 @@ extension JellyfinServerClient {
             try await makeClient(url: session.server.url, accessToken: session.accessToken)
                 .send(Paths.reportPlaybackStart(report))
         }
+    }
+
+    /// Tells the server where playback of `item` is, and whether it's paused, as it plays. The server
+    /// saves the position each time, so it isn't lost if playback never reports stopping.
+    ///
+    /// - Throws: as `reportPlaybackStarted(of:from:at:session:)`.
+    public func reportPlaybackProgress(of item: MediaItem, from source: PlaybackSource, at position: Duration, isPaused: Bool, session: UserSession) async throws {
+        let report = PlaybackStateInfo(
+            canSeek: true,
+            isPaused: isPaused,
+            itemID: item.id,
+            mediaSourceID: source.versionID,
+            playMethod: .directPlay,
+            playSessionID: source.playSessionID,
+            positionTicks: position.ticks
+        )
+        _ = try await perform(.request) {
+            try await makeClient(url: session.server.url, accessToken: session.accessToken)
+                .send(Paths.reportPlaybackProgress(report))
+        }
+    }
+
+    /// The user's state for `item` as the server has it now, such as where they got to, wherever
+    /// they played it.
+    ///
+    /// - Throws: `JellyfinError.unauthorized` if the server no longer accepts the session,
+    ///   `.unreachable` or `.serverError`; `CancellationError` if the task is cancelled.
+    public func userData(for item: MediaItem, session: UserSession) async throws -> UserData {
+        let data = try await perform(.request) {
+            try await makeClient(url: session.server.url, accessToken: session.accessToken)
+                .send(Paths.getItemUserData(itemID: item.id, userID: session.user.id)).value
+        }
+        return UserData(data)
     }
 
     /// Tells the server `item` stopped playing at `position`, so it saves where the user got to, and

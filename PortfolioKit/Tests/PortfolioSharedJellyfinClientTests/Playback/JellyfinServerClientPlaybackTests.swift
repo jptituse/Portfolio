@@ -91,6 +91,38 @@ struct JellyfinServerClientPlaybackTests {
         #expect(body["PositionTicks"] as? Int == 900_000_000)
     }
 
+    @Test func reportsWherePlaybackIsAndWhetherItsPaused() async throws {
+        let mock = MockJellyfinServer(items: [arrival])
+        let session = try await signIn(to: mock)
+        let source = try await client.playbackSource(for: item(arrival), session: session)
+
+        try await client.reportPlaybackProgress(of: item(arrival), from: source, at: .seconds(754), isPaused: true, session: session)
+
+        let report = try #require(mock.playbackReports.last)
+        let body = try #require(try JSONSerialization.jsonObject(with: report.body) as? [String: Any])
+        #expect(report.kind == .progress)
+        #expect(body["ItemId"] as? String == arrival.id)
+        #expect(body["MediaSourceId"] as? String == arrival.id)
+        #expect(body["PlaySessionId"] as? String == MockJellyfinServer.playSessionID)
+        #expect(body["PlayMethod"] as? String == "DirectPlay")
+        #expect(body["PositionTicks"] as? Int == 7_540_000_000)
+        #expect(body["IsPaused"] as? Bool == true)
+    }
+
+    @Test func readsWhereTheUserGotToAsTheServerHasItNow() async throws {
+        var watched = arrival
+        watched.watchedMinutes = 42
+        watched.lastPlayed = Date(timeIntervalSince1970: 1_800_000_000)
+        let mock = MockJellyfinServer(items: [watched])
+        let session = try await signIn(to: mock)
+
+        let userData = try await client.userData(for: item(watched), session: session)
+
+        #expect(userData.playbackPosition == .seconds(42 * 60))
+        #expect(userData.lastPlayed == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(userData.canResume)
+    }
+
     @Test func reportsWherePlaybackStopped() async throws {
         let mock = MockJellyfinServer(items: [arrival])
         let session = try await signIn(to: mock)

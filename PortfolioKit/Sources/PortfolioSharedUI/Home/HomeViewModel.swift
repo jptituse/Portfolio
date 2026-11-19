@@ -23,15 +23,18 @@ public final class HomeViewModel {
     public private(set) var canRetry = false
     /// Where the items' artwork comes from: the profile's server.
     public let images: (any MediaImageResolver)?
+    /// Where the profile got to in what they've played since the items loaded.
+    public let userDataUpdates: UserDataUpdates?
 
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let session: UserSession?
     /// The load under way. It's Home's own, so the view that asked for it going away doesn't cancel it.
     @ObservationIgnored private var loading: Task<Void, Never>?
 
-    init(client: JellyfinServerClient, session: UserSession?) {
+    init(client: JellyfinServerClient, session: UserSession?, userDataUpdates: UserDataUpdates? = nil) {
         self.client = client
         self.session = session
+        self.userDataUpdates = userDataUpdates
         images = session.map { JellyfinImageResolver(server: $0.server) }
     }
 

@@ -43,6 +43,8 @@ public final class MockJellyfinServer: Sendable {
         /// How far the user has watched it, in minutes. Anything above zero puts it among the items to
         /// resume.
         public var watchedMinutes = 0
+        /// When the user last started playing it.
+        public var lastPlayed: Date?
         /// Whether it's the next episode of a show the user is watching.
         public var isNextUp = false
         public var seriesName: String?
@@ -179,9 +181,9 @@ public final class MockJellyfinServer: Sendable {
     /// The bodies of the `PlaybackInfo` requests it got, in order: what each client said it can play.
     public var playbackInfoRequests: [Data] { playbackInfoBodies.withLock { $0 } }
 
-    /// A client telling it playback started or stopped.
+    /// A client telling it playback started, where it is, or that it stopped.
     public struct PlaybackReport: Sendable {
-        public enum Kind: Sendable { case started, stopped }
+        public enum Kind: Sendable { case started, progress, stopped }
         public let kind: Kind
         /// The report, as JSON.
         public let body: Data
@@ -282,11 +284,20 @@ public final class MockJellyfinServer: Sendable {
             guard account(for: request) != nil else { return Response(status: 401) }
             let names = Set(matchingItems(for: request).flatMap(\.genres)).sorted()
             return Response(status: 200, json: ["Items": names.map { ["Id": Self.genreID($0), "Name": $0] }, "TotalRecordCount": names.count])
-        case ("POST", "/Sessions/Playing"), ("POST", "/Sessions/Playing/Stopped"):
+        case ("POST", "/Sessions/Playing"), ("POST", "/Sessions/Playing/Progress"), ("POST", "/Sessions/Playing/Stopped"):
             guard account(for: request) != nil else { return Response(status: 401) }
-            let kind: PlaybackReport.Kind = request.url?.path == "/Sessions/Playing" ? .started : .stopped
+            let kind: PlaybackReport.Kind = switch request.url?.path {
+            case "/Sessions/Playing": .started
+            case "/Sessions/Playing/Progress": .progress
+            default: .stopped
+            }
             reports.withLock { $0.append(PlaybackReport(kind: kind, body: request.bodyData ?? Data())) }
             return Response(status: 204)
+        case ("GET", let path) where path.hasPrefix("/UserItems/") && path.hasSuffix("/UserData"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let itemID = path.split(separator: "/")[1]
+            guard let item = items.first(where: { $0.id == itemID }) else { return Response(status: 404) }
+            return Response(status: 200, json: userDataJSON(item))
         case ("POST", let path) where path.hasPrefix("/Items/") && path.hasSuffix("/PlaybackInfo"):
             guard account(for: request) != nil else { return Response(status: 401) }
             if let body = request.bodyData { playbackInfoBodies.withLock { $0.append(body) } }
@@ -368,16 +379,22 @@ public final class MockJellyfinServer: Sendable {
         ]
         json["PrimaryImageAspectRatio"] = item.primaryImageAspectRatio
         json["RunTimeTicks"] = item.runtimeMinutes.map { $0 * Self.ticksPerMinute }
-        json["UserData"] = [
+        json["UserData"] = userDataJSON(item)
+        json["SeriesName"] = item.seriesName
+        json["SeriesId"] = item.seriesID
+        json["ParentIndexNumber"] = item.seasonNumber
+        json["IndexNumber"] = item.episodeNumber
+        return json
+    }
+
+    private func userDataJSON(_ item: Item) -> [String: Any] {
+        var json: [String: Any] = [
             "PlaybackPositionTicks": item.watchedMinutes * Self.ticksPerMinute,
             "Played": false,
             "Key": item.id,
             "ItemId": item.id,
         ]
-        json["SeriesName"] = item.seriesName
-        json["SeriesId"] = item.seriesID
-        json["ParentIndexNumber"] = item.seasonNumber
-        json["IndexNumber"] = item.episodeNumber
+        json["LastPlayedDate"] = item.lastPlayed.map { $0.formatted(.iso8601) }
         return json
     }
 

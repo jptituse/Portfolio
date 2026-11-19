@@ -107,12 +107,12 @@ struct MainNavigationView: View {
         }
     }
 
-    /// Plays `item` from `position`, full screen, from the profile's server. `showDetails`, if given,
-    /// shows its detail view behind the player as it closes.
-    private func play(_ item: MediaItem, from position: Duration, showDetails: (() -> Void)?) {
+    /// Plays `item` full screen, from the profile's server, from the beginning or resuming.
+    /// `showDetails`, if given, shows its detail view behind the player as it closes.
+    private func play(_ item: MediaItem, from start: PlaybackStart, showDetails: (() -> Void)?) {
         showDetailsOnClose = showDetails
         isPlayerUp = true
-        player = currentProfile.makePlayer(for: item, startingAt: position, makeEngine: makePlaybackEngine)
+        player = currentProfile.makePlayer(for: item, from: start, makeEngine: makePlaybackEngine)
     }
 
     /// Closes the player, and has what played show its detail view behind it as it goes, so it's there

@@ -16,12 +16,14 @@ public final class LibrariesViewModel {
 
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let session: UserSession?
+    @ObservationIgnored private let userDataUpdates: UserDataUpdates?
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var libraryViewModels: [LibraryScope: LibraryViewModel] = [:]
 
-    init(client: JellyfinServerClient, session: UserSession?) {
+    init(client: JellyfinServerClient, session: UserSession?, userDataUpdates: UserDataUpdates? = nil) {
         self.client = client
         self.session = session
+        self.userDataUpdates = userDataUpdates
     }
 
     /// Loads the libraries, and returns once they've loaded or failed. Libraries already listed stay
@@ -48,7 +50,7 @@ public final class LibrariesViewModel {
     /// it was left.
     public func viewModel(for scope: LibraryScope) -> LibraryViewModel {
         if let viewModel = libraryViewModels[scope] { return viewModel }
-        let viewModel = LibraryViewModel(scope: scope, client: client, session: session)
+        let viewModel = LibraryViewModel(scope: scope, client: client, session: session, userDataUpdates: userDataUpdates)
         libraryViewModels[scope] = viewModel
         return viewModel
     }

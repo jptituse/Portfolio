@@ -37,6 +37,7 @@ public final class LibraryViewModel {
 
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let session: UserSession?
+    @ObservationIgnored private let userDataUpdates: UserDataUpdates?
     @ObservationIgnored private let pipeline: ImagePipeline
     @ObservationIgnored private let settleDelay: Duration
     @ObservationIgnored private let firstPageSize: Int
@@ -66,6 +67,7 @@ public final class LibraryViewModel {
         scope: LibraryScope,
         client: JellyfinServerClient,
         session: UserSession?,
+        userDataUpdates: UserDataUpdates? = nil,
         pipeline: ImagePipeline = .shared,
         settleDelay: Duration = .milliseconds(100),
         firstPageSize: Int = 24,
@@ -75,6 +77,7 @@ public final class LibraryViewModel {
         self.scope = scope
         self.client = client
         self.session = session
+        self.userDataUpdates = userDataUpdates
         self.pipeline = pipeline
         self.settleDelay = settleDelay
         self.firstPageSize = firstPageSize
@@ -307,7 +310,7 @@ public final class LibraryViewModel {
     /// An item's poster in the grid.
     public func card(for item: MediaItem) -> MediaCardViewModel {
         if let card = cards[item.id] { return card }
-        let card = MediaCardViewModel(item: item, images: images)
+        let card = MediaCardViewModel(item: item, images: images, userDataUpdates: userDataUpdates)
         setArtworkSizes(of: card)
         cards[item.id] = card
         return card

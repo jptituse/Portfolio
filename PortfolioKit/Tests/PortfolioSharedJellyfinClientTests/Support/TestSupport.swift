@@ -9,6 +9,15 @@ enum Fixture {
     }
 
     static func decode<T: Decodable>(_ type: T.Type, from name: String) throws -> T {
-        try JSONDecoder().decode(type, from: data(name))
+        let decoder = JSONDecoder()
+        // Dates as Jellyfin sends them, with or without fractions of a second, as the SDK reads them.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let string = try decoder.singleValueContainer().decode(String.self)
+            if let date = try? Date(string, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)) {
+                return date
+            }
+            return try Date(string, strategy: .iso8601)
+        }
+        return try decoder.decode(type, from: data(name))
     }
 }

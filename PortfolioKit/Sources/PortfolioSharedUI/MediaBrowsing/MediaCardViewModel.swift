@@ -46,11 +46,15 @@ public final class MediaCardViewModel {
     public var showsProgress = false
 
     @ObservationIgnored private let images: (any MediaImageResolver)?
+    @ObservationIgnored private let userDataUpdates: UserDataUpdates?
 
-    /// - Parameter images: where the item's artwork comes from. Without it, the card shows a color.
-    public init(item: MediaItem, images: (any MediaImageResolver)? = nil) {
+    /// - Parameters:
+    ///   - images: where the item's artwork comes from. Without it, the card shows a color.
+    ///   - userDataUpdates: where the user got to in what they've played since the item loaded.
+    public init(item: MediaItem, images: (any MediaImageResolver)? = nil, userDataUpdates: UserDataUpdates? = nil) {
         self.item = item
         self.images = images
+        self.userDataUpdates = userDataUpdates
         detailInfo = MediaDetailInfoViewModel(item: item)
     }
 
@@ -83,10 +87,31 @@ public final class MediaCardViewModel {
 
     // MARK: Progress
 
+    /// The user's state for the item: the newest known, which can be newer than the item's own after
+    /// playing it here.
+    var userData: UserData {
+        userDataUpdates?.userData(for: item) ?? item.userData
+    }
+
     /// How far into the item the user is, from 0 to 1, or nil if they haven't started it.
-    var progress: Double? {
-        guard let runtime = item.runtime, runtime > .zero, item.userData.playbackPosition > .zero else { return nil }
-        return min(1, item.userData.playbackPosition / runtime)
+    public var progress: Double? {
+        guard let runtime = item.runtime, runtime > .zero, userData.canResume else { return nil }
+        return min(1, userData.playbackPosition / runtime)
+    }
+
+    /// Whether Play resumes where the user left off, with a separate way to start from the beginning.
+    public var canResume: Bool {
+        userData.canResume
+    }
+
+    /// "Resume" while there's somewhere to resume from, else "Play".
+    public var playLabel: String {
+        canResume ? String(localized: "Resume") : String(localized: "Play")
+    }
+
+    /// Where Play starts: where the user left off, if anywhere.
+    public var playStart: PlaybackStart {
+        canResume ? .resuming : .beginning
     }
 
     /// "S1E5" for an episode, else nil.
@@ -95,13 +120,18 @@ public final class MediaCardViewModel {
     }
 
     /// "23m left", or "1h 12m left", or nil if the item's length isn't known.
-    var timeLeftLabel: String? {
+    public var timeLeftLabel: String? {
+        timeRemainingLabel.map { String(localized: "\($0) left") }
+    }
+
+    /// "23m", or "1h 12m": the time left on its own, as the resume button shows it, or nil if the
+    /// item's length isn't known.
+    public var timeRemainingLabel: String? {
         guard let runtime = item.runtime, runtime > .zero else { return nil }
-        let left = max(.zero, runtime - item.userData.playbackPosition)
+        let left = max(.zero, runtime - userData.playbackPosition)
         // Rounded up, so nearly done still reads as a minute left rather than none.
         let minutes = Int((left / .seconds(60)).rounded(.up))
-        let formatted = Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
-        return String(localized: "\(formatted) left")
+        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
     }
 
     /// Whether the progress shows: on a poster in a row that shows it, while the labels are showing.

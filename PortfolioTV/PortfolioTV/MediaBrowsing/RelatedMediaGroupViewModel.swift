@@ -34,19 +34,24 @@ final class RelatedMediaGroupViewModel: Identifiable {
     @ObservationIgnored private var idleTimer: Task<Void, Never>?
     @ObservationIgnored private let idleDelay: Duration
     @ObservationIgnored private let images: (any MediaImageResolver)?
+    @ObservationIgnored private let userDataUpdates: UserDataUpdates?
     /// The sizes the cards' artwork is fetched at, in pixels: a poster's, and the screen's for
     /// landscape art.
     /// The screen's scale and size, which the artwork's sizes in pixels follow.
     @ObservationIgnored private var screen: (scale: CGFloat, size: CGSize)?
 
-    /// - Parameter images: where the items' artwork comes from.
+    /// - Parameters:
+    ///   - images: where the items' artwork comes from.
+    ///   - userDataUpdates: where the user got to in what they've played since the items loaded.
     init(
         group: RelatedMediaGroup,
         images: (any MediaImageResolver)? = nil,
+        userDataUpdates: UserDataUpdates? = nil,
         idleDelay: Duration = RelatedMediaGroupPosterView.Metrics.idleDelay
     ) {
         self.group = group
         self.images = images
+        self.userDataUpdates = userDataUpdates
         self.idleDelay = idleDelay
     }
 
@@ -58,7 +63,7 @@ final class RelatedMediaGroupViewModel: Identifiable {
     /// The item's card. A poster and the card that grows out of it share one, so they always agree.
     func card(for item: MediaItem) -> MediaCardViewModel {
         if let card = cards[item.id] { return card }
-        let card = MediaCardViewModel(item: item, images: images)
+        let card = MediaCardViewModel(item: item, images: images, userDataUpdates: userDataUpdates)
         if isInProgress {
             card.isExtended = true
             card.showsProgress = true
