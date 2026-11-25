@@ -5,7 +5,8 @@ import PortfolioSharedPlaybackEngine
 import SwiftUI
 
 /// A `PlaybackEngine` that plays through AetherEngine, the one type outside this module that knows it.
-/// It mirrors the engine's Combine state as observable properties.
+/// It mirrors the engine's Combine state as observable properties, and draws the subtitles AetherEngine
+/// leaves to its host (`SubtitlesView`).
 ///
 /// One engine per player: AetherEngine binds to one surface, and `stop()` tears its session down.
 @MainActor
@@ -16,23 +17,36 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     public private(set) var duration: Duration = .zero
 
     @ObservationIgnored private let engine: AetherEngine
+    @ObservationIgnored private let subtitlesViewModel: SubtitlesViewModel
     @ObservationIgnored private var mirroring: [Task<Void, Never>] = []
     @ObservationIgnored private let preferences: PlaybackPreferences
+    /// What's open, for which of the engine's tracks its tracks are.
+    @ObservationIgnored private var source: PlaybackSource?
+    @ObservationIgnored private var reducesLoudSounds = false
+    /// Where playback was while the engine rebuilds itself at the playhead, and when the hold gives up.
+    @ObservationIgnored private var rebuildHold: RebuildHold?
+    @ObservationIgnored private var rebuildTimeout: Task<Void, Never>?
 
     /// - Parameter preferences: how this device plays, as Settings has it when the player opens.
     /// - Throws: if AetherEngine can't start, such as when its audio session is unavailable.
     public init(preferences: PlaybackPreferences = PlaybackPreferences()) throws {
         self.preferences = preferences
         engine = try AetherEngine()
+        // Nothing here moves subtitles in time, so the engine needn't keep pictures it has drawn.
+        engine.maximumSubtitleOffsetSeconds = 0
+        subtitlesViewModel = SubtitlesViewModel(engine: engine)
         mirroring = [
             Task { [weak self, engine] in
                 for await phase in engine.$playbackPhase.values { self?.status = Self.status(for: phase) }
             },
             Task { [weak self, engine] in
-                for await seconds in engine.clock.$currentTime.values { self?.currentTime = .seconds(seconds) }
+                for await seconds in engine.clock.$currentTime.values { self?.clockMoved(to: .seconds(seconds)) }
             },
             Task { [weak self, engine] in
-                for await seconds in engine.$duration.values { self?.duration = .seconds(seconds) }
+                for await seconds in engine.$duration.values {
+                    // Rebuilding, it doesn't know for a moment.
+                    if seconds > 0 || self?.rebuildHold == nil { self?.duration = .seconds(seconds) }
+                }
             },
         ]
     }
@@ -48,24 +62,52 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         AnyView(AetherPlayerSurface(engine: engine))
     }
 
-    public func load(_ source: PlaybackSource, startingAt position: Duration) async throws {
-        try await engine.load(
-            url: source.url,
-            startPosition: position > .zero ? position.inSeconds : nil,
-            options: Self.options(for: source, preferences)
-        )
+    public var subtitles: AnyView {
+        AnyView(SubtitlesView(viewModel: subtitlesViewModel))
     }
 
-    /// How AetherEngine opens `source` as `preferences` say.
+    /// Opens `source` with its subtitle files, on its audio track: the file's tracks are only known once
+    /// it's open, so it opens on that track's language, then switches if that picked another.
+    public func load(_ source: PlaybackSource, startingAt position: Duration) async throws {
+        endRebuildHold()
+        self.source = source
+        var options = Self.options(for: source, preferences, reducesLoudSounds: reducesLoudSounds)
+        options.externalSubtitles = TrackNumbering.subtitleFiles(in: source).map { file in
+            ExternalSubtitleTrack(
+                url: file.url,
+                name: file.track.title,
+                language: file.track.language,
+                isForced: file.track.isForced,
+                isDefault: file.track.isDefault
+            )
+        }
+        // A stream the server makes carries only the audio it was asked for.
+        let audio = source.method == .directPlay ? source.playingAudioTrack : nil
+        if let language = audio?.language {
+            options.preferredAudioLanguages = [language]
+        }
+        let probe = try await engine.load(url: source.url, startPosition: position > .zero ? position.inSeconds : nil, options: options)
+        subtitlesViewModel.videoSize = probe.flatMap { probe in
+            probe.videoWidth > 0 && probe.videoHeight > 0 ? CGSize(width: Int(probe.videoWidth), height: Int(probe.videoHeight)) : nil
+        }
+        if let audio, let id = engineTrackID(for: audio), id != engine.activeAudioTrackIndex {
+            holdTime(at: position)
+            engine.selectAudioTrack(index: id)
+        }
+        selectSubtitleTrack(source.showingSubtitleTrack)
+    }
+
+    /// How AetherEngine opens `source` as `preferences` say, and Reduce Loud Sounds if it's on.
     ///
     /// - Dolby Vision FEL composes Profile 7 from both its layers (`preferDualLayerDolbyVision`) on the
     ///   engine's own decoder, or with AVPlayer decoding the base layer. Without it, Profile 7 plays as
     ///   single-layer 8.1 without its enhancement layer.
     /// - Object audio renders TrueHD Atmos and DTS:X for the speakers, which tvOS sends to the receiver
     ///   as Dolby MAT. Without it, it becomes lossy E-AC-3 5.1 without heights.
-    /// - Enhancing dialogue and mixing down to stereo shape decoded audio, so audio that would pass
-    ///   through as it is (Atmos, lossless) is decoded, and object audio isn't rendered meanwhile.
-    nonisolated static func options(for source: PlaybackSource, _ preferences: PlaybackPreferences) -> LoadOptions {
+    /// - Enhancing dialogue, mixing down to stereo and reducing loud sounds shape decoded audio, so audio
+    ///   that would pass through as it is (Atmos, lossless) is decoded, and object audio isn't rendered
+    ///   meanwhile.
+    nonisolated static func options(for source: PlaybackSource, _ preferences: PlaybackPreferences, reducesLoudSounds: Bool = false) -> LoadOptions {
         var options = LoadOptions(httpHeaders: source.httpHeaders)
         switch preferences.dolbyVisionFEL {
         case .off:
@@ -79,10 +121,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         }
         options.objectAudioRendering = preferences.objectAudioLayout.map { .render(speakerLayout(for: $0)) } ?? .off
         options.upscalesLowResolutionVideo = preferences.upscalesLowResolution
-        options.audioShaping = AudioShaping(
-            maxChannels: preferences.downmixesToStereo ? 2 : nil,
-            dialogueGainDB: preferences.enhancesDialogue ? dialogueGain : 0
-        )
+        options.audioShaping = audioShaping(preferences, reducesLoudSounds: reducesLoudSounds)
         options.audioDelaySeconds = preferences.audioDelay.inSeconds
         return options
     }
@@ -110,11 +149,86 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     public func seek(to position: Duration) async {
+        endRebuildHold()
         await engine.seek(to: position.inSeconds)
     }
 
+    /// Switches to `track`, which AetherEngine does by opening the file again at the playhead.
+    public func selectAudioTrack(_ track: MediaTrack) {
+        guard let id = engineTrackID(for: track), id != engine.activeAudioTrackIndex else { return }
+        holdTime(at: currentTime)
+        engine.selectAudioTrack(index: id)
+    }
+
+    public func selectSubtitleTrack(_ track: MediaTrack?) {
+        guard let track, let id = engineTrackID(for: track) else {
+            if engine.activeSubtitleTrackIndex != nil { engine.clearSubtitle() }
+            return
+        }
+        guard id != engine.activeSubtitleTrackIndex else { return }
+        engine.selectSubtitleTrack(index: id)
+    }
+
+    /// Compresses the audio with AetherEngine's night-mode preset, which decodes audio it would otherwise
+    /// pass through as it is (Dolby Atmos and lossless audio among it) while it's on. Changing it reopens
+    /// the audio, for about a second. AVPlayer owns the audio of a stream the server makes, so it waits for
+    /// a file played as it is.
+    public func setReducesLoudSounds(_ reduces: Bool) {
+        // The engine opens a file it plays as it is again at the playhead to change it.
+        if reduces != reducesLoudSounds, source?.method == .directPlay { holdTime(at: currentTime) }
+        reducesLoudSounds = reduces
+        engine.setAudioShaping(Self.audioShaping(preferences, reducesLoudSounds: reduces))
+    }
+
     public func stop() {
+        endRebuildHold()
+        source = nil
         engine.stop()
+    }
+
+    /// Keeps the time where playback is, `position`, while the engine rebuilds itself there.
+    private func holdTime(at position: Duration) {
+        rebuildHold = RebuildHold(at: position)
+        currentTime = position
+        rebuildTimeout?.cancel()
+        rebuildTimeout = Task { [weak self] in
+            try? await Task.sleep(for: RebuildHold.timeout)
+            guard !Task.isCancelled, let self else { return }
+            endRebuildHold()
+            currentTime = .seconds(engine.clock.currentTime)
+        }
+    }
+
+    private func endRebuildHold() {
+        rebuildHold = nil
+        rebuildTimeout?.cancel()
+        rebuildTimeout = nil
+    }
+
+    private func clockMoved(to time: Duration) {
+        if var hold = rebuildHold {
+            guard hold.isOver(at: time) else {
+                rebuildHold = hold
+                return
+            }
+            endRebuildHold()
+        }
+        currentTime = time
+    }
+
+    /// The audio's shaping: Settings' dialogue and stereo, with the night-mode compressor while Reduce
+    /// Loud Sounds is on.
+    nonisolated static func audioShaping(_ preferences: PlaybackPreferences, reducesLoudSounds: Bool) -> AudioShaping {
+        AudioShaping(
+            maxChannels: preferences.downmixesToStereo ? 2 : nil,
+            dialogueGainDB: preferences.enhancesDialogue ? dialogueGain : 0,
+            compressor: reducesLoudSounds ? .night : nil
+        )
+    }
+
+    private func engineTrackID(for track: MediaTrack) -> Int? {
+        guard let source else { return nil }
+        return TrackNumbering.engineTrackID(for: track, in: source, audio: engine.audioTracks, subtitles: engine.subtitleTracks)
     }
 
     /// What AetherEngine's phase, which tracks motion rather than intent, means here. Seeking, running

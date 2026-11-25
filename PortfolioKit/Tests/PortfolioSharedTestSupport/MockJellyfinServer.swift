@@ -56,6 +56,16 @@ public final class MockJellyfinServer: Sendable {
         public var episodeNumber: Int?
         /// Whether the server would send its default version as it is to a client that plays it.
         public var isDirectlyPlayable = true
+        /// Whether the server would make a stream of it for a client, when it can't send it as it is.
+        public var isTranscodable = true
+        /// Its default version's streams, numbered as Jellyfin numbers them: files beside it first.
+        public var streams = Stream.samples
+        /// The audio stream the server picks for the user, else the one marked default.
+        public var defaultAudioStream: Int?
+        /// The subtitles the server picks for the user, if any.
+        public var defaultSubtitleStream: Int?
+        /// Its default version's bitrate, in bits per second.
+        public var bitrate = 20_000_000
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -75,6 +85,49 @@ public final class MockJellyfinServer: Sendable {
             self.libraryID = libraryID
             self.genres = genres
         }
+    }
+
+    /// One of an item's streams.
+    public struct Stream: Sendable {
+        public enum Kind: String, Sendable {
+            case video = "Video"
+            case audio = "Audio"
+            case subtitle = "Subtitle"
+        }
+
+        public var index: Int
+        public var kind: Kind
+        public var title: String
+        public var language: String?
+        public var codec: String
+        public var isDefault: Bool
+        /// In a file of its own, beside the media.
+        public var isExternal: Bool
+        /// Subtitles drawn as text, rather than pictures.
+        public var isText: Bool
+
+        public init(index: Int, kind: Kind, title: String, language: String? = nil, codec: String, isDefault: Bool = false, isExternal: Bool = false, isText: Bool = true) {
+            self.index = index
+            self.kind = kind
+            self.title = title
+            self.language = language
+            self.codec = codec
+            self.isDefault = isDefault
+            self.isExternal = isExternal
+            self.isText = isText
+        }
+
+        /// A film's streams: subtitles in files of their own (as text, and as pictures), then the file's
+        /// own video, two audio tracks and two subtitle tracks (as text, and as pictures).
+        public static let samples = [
+            Stream(index: 0, kind: .subtitle, title: "English - SDH - SRT - External", language: "eng", codec: "srt", isExternal: true),
+            Stream(index: 1, kind: .subtitle, title: "French - PGSSUB - External", language: "fre", codec: "PGSSUB", isExternal: true, isText: false),
+            Stream(index: 2, kind: .video, title: "4K HEVC Dolby Vision", codec: "hevc"),
+            Stream(index: 3, kind: .audio, title: "English - Dolby Digital+ - 5.1 - Default", language: "eng", codec: "eac3", isDefault: true),
+            Stream(index: 4, kind: .audio, title: "Spanish - AAC - Stereo", language: "spa", codec: "aac"),
+            Stream(index: 5, kind: .subtitle, title: "English - SUBRIP", language: "eng", codec: "subrip"),
+            Stream(index: 6, kind: .subtitle, title: "Spanish - PGSSUB", language: "spa", codec: "PGSSUB", isText: false),
+        ]
     }
 
     /// One of the user's libraries.
@@ -131,6 +184,8 @@ public final class MockJellyfinServer: Sendable {
     private let recorded = Mutex<[URLRequest]>([])
     private let playbackInfoBodies = Mutex<[Data]>([])
     private let reports = Mutex<[PlaybackReport]>([])
+    private let playSessions = Mutex(0)
+    private let stoppedSessions = Mutex<[String]>([])
     private let itemStore: Mutex<[Item]>
     /// Names and picture tags accounts were given, by account ID: a removed picture's tag is nil.
     private let renamed = Mutex<[String: String]>([:])
@@ -203,6 +258,9 @@ public final class MockJellyfinServer: Sendable {
 
     /// The playback reports it got, in order.
     public var playbackReports: [PlaybackReport] { reports.withLock { $0 } }
+
+    /// The play sessions whose streams a client asked it to stop making, in order.
+    public var stoppedTranscodes: [String] { stoppedSessions.withLock { $0 } }
 
     /// Access tokens the server currently accepts.
     public var activeTokens: Set<String> { sessions.withLock { Set($0.keys) } }
@@ -343,7 +401,15 @@ public final class MockJellyfinServer: Sendable {
             if let body = request.bodyData { playbackInfoBodies.withLock { $0.append(body) } }
             let itemID = path.split(separator: "/")[1]
             guard let item = items.first(where: { $0.id == itemID }) else { return Response(status: 404) }
-            return Response(status: 200, json: playbackInfo(for: item))
+            let body = request.bodyData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            return Response(status: 200, json: playbackInfo(for: item, asked: body, token: token(in: request) ?? ""))
+        case ("DELETE", "/Videos/ActiveEncodings"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems
+            if let session = query?.first(where: { $0.name == "playSessionId" })?.value {
+                stoppedSessions.withLock { $0.append(session) }
+            }
+            return Response(status: 204)
         case ("GET", let path) where path.hasPrefix("/Items/"):
             // Images need no sign-in, as on a real server.
             return hasImage(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
@@ -353,18 +419,59 @@ public final class MockJellyfinServer: Sendable {
     }
 
     /// The item's versions, its default first, as `PlaybackInfo` lists them: its own, and another the
-    /// app should never pick.
-    private func playbackInfo(for item: Item) -> [String: Any] {
-        let versions: [[String: Any]] = [
-            ["Id": item.id, "Container": "mkv", "Protocol": "File", "SupportsDirectPlay": item.isDirectlyPlayable,
-             "SupportsDirectStream": true, "SupportsTranscoding": true],
-            ["Id": "\(item.id)-other", "Container": "mp4", "Protocol": "File", "SupportsDirectPlay": true,
-             "SupportsDirectStream": true, "SupportsTranscoding": true],
+    /// app should never pick. Its own plays as it is if the item does, unless the client asks for less
+    /// than its bitrate, or for audio or subtitles only a transcode carries (a file of its own, or
+    /// subtitles drawn as pictures in a file of their own); otherwise it's a transcode. Each answer is a
+    /// new play session.
+    private func playbackInfo(for item: Item, asked body: [String: Any], token: String) -> [String: Any] {
+        let playSession = "play-session-\(playSessions.withLock { count in count += 1; return count })"
+        let audio = body["AudioStreamIndex"] as? Int
+            ?? item.defaultAudioStream
+            ?? item.streams.first { $0.kind == .audio && $0.isDefault }?.index
+        let subtitles = body["SubtitleStreamIndex"] as? Int ?? item.defaultSubtitleStream ?? -1
+        let maxBitrate = body["MaxStreamingBitrate"] as? Int ?? .max
+        let chosen = item.streams.filter { $0.index == audio || $0.index == subtitles }
+        let directPlay = item.isDirectlyPlayable && maxBitrate >= item.bitrate && !chosen.contains { $0.isExternal && (!$0.isText || $0.kind == .audio) }
+        let streams: [[String: Any]] = item.streams.map { stream in
+            var json: [String: Any] = [
+                "Index": stream.index, "Type": stream.kind.rawValue, "DisplayTitle": stream.title, "Codec": stream.codec,
+                "IsDefault": stream.isDefault, "IsExternal": stream.isExternal, "IsForced": false,
+            ]
+            json["Language"] = stream.language
+            guard stream.kind == .subtitle else { return json }
+            json["IsTextSubtitleStream"] = stream.isText
+            if directPlay && !stream.isExternal {
+                json["DeliveryMethod"] = "Embed"
+            } else if stream.isText {
+                json["DeliveryMethod"] = "External"
+                json["DeliveryUrl"] = "/Videos/\(item.id)/\(item.id)/Subtitles/\(stream.index)/0/Stream.srt?ApiKey=\(token)"
+            } else {
+                json["DeliveryMethod"] = "Encode"
+            }
+            return json
+        }
+        var version: [String: Any] = [
+            "Id": item.id, "Container": "mkv", "Protocol": "File", "SupportsDirectPlay": directPlay,
+            "SupportsDirectStream": directPlay, "SupportsTranscoding": true, "MediaStreams": streams,
+            "Bitrate": item.bitrate, "DefaultSubtitleStreamIndex": subtitles,
         ]
-        return ["MediaSources": versions, "PlaySessionId": Self.playSessionID]
+        version["DefaultAudioStreamIndex"] = audio
+        if !directPlay && item.isTranscodable {
+            let bitrate = min(maxBitrate, item.bitrate)
+            version["TranscodingUrl"] = "/videos/\(item.id)/master.m3u8?MediaSourceId=\(item.id)&PlaySessionId=\(playSession)"
+                + "&AudioStreamIndex=\(audio ?? -1)&SubtitleStreamIndex=\(subtitles)&VideoBitrate=\(bitrate)&ApiKey=\(token)"
+            version["TranscodingSubProtocol"] = "hls"
+            version["TranscodingContainer"] = "mp4"
+        }
+        let other: [String: Any] = [
+            "Id": "\(item.id)-other", "Container": "mp4", "Protocol": "File", "SupportsDirectPlay": true,
+            "SupportsDirectStream": true, "SupportsTranscoding": true,
+        ]
+        return ["MediaSources": [version, other], "PlaySessionId": playSession]
     }
 
-    /// The play session every `PlaybackInfo` answer names.
+    /// The play session the first `PlaybackInfo` answer names. Each after it names the next: "play-session-2",
+    /// and so on.
     public static let playSessionID = "play-session-1"
 
     private func libraryJSON(_ library: Library) -> [String: Any] {

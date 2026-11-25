@@ -6,11 +6,16 @@ extension PlayerView {
     /// scrubbing needle (`ScrubNeedle`) with them while `scrubs`, as the system player does: each move
     /// by its translation and speed, then a coast once the finger lifts, until a new touch or `scrubs`
     /// turning off stops it. The remote's touches go to the focused view and the views around it, so it
-    /// watches them from the window, whichever view has focus.
+    /// watches them from the window, while `reads`. A swipe up or down moves focus instead, to the
+    /// player's menus, so only one across can start scrubbing.
     struct SwipeReader: UIViewRepresentable {
+        /// Whether it reads swipes: while focus is on the screen, not the menus.
+        let reads: Bool
         let scrubs: Bool
-        /// Where playback is, from 0 to 1, for the needle to catch on.
-        let marker: Double
+        /// Where playback is, from 0 to 1, for the needle to catch on. It's read as a swipe puts the
+        /// needle on the bar, as playback stays put while paused, so the player isn't drawn again as the
+        /// media plays.
+        let marker: () -> Double
         /// A swipe began: gives where the spot is, from 0 to 1, if it's scrubbing.
         let onBegan: () -> Double?
         /// The needle moved to a spot, from 0 to 1 along the bar.
@@ -26,12 +31,15 @@ extension PlayerView {
             view.onBegan = onBegan
             view.needle.onMoved = onMoved
             view.needle.onInteractingChanged = onInteractingChanged
-            view.needle.marker = marker
+            view.marker = marker
+            view.reads = reads
             view.scrubs = scrubs
         }
 
         final class ReaderView: UIView {
             var onBegan: () -> Double? = { nil }
+            var marker: () -> Double = { 0 }
+            var reads = true
             var scrubs = false {
                 didSet { if !scrubs { stopScrubbing() } }
             }
@@ -72,10 +80,14 @@ extension PlayerView {
                 let velocity = recognizer.velocity(in: window)
                 switch recognizer.state {
                 case .began:
+                    guard reads else { return }
                     recognizer.setTranslation(.zero, in: window)
                     needle.touchBegan()
+                    // Up or down moves focus, unless the needle's already on the bar.
+                    guard isPlaced || abs(velocity.x) >= abs(velocity.y) else { return }
                     guard let spot = onBegan(), !isPlaced else { return }
                     let barWidth = window.bounds.width - 2 * PlayerControlsView.Metrics.sideInset
+                    needle.marker = marker()
                     needle.place(at: spot, barWidth: barWidth)
                     isPlaced = true
                 case .changed:

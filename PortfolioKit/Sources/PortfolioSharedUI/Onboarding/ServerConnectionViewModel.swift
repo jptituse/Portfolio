@@ -69,7 +69,7 @@ public final class ServerConnectionViewModel {
         case .unauthorized:
             return "The server asked for a password before Portfolio could reach Jellyfin. Try the server's own address instead."
         // Checking an address never plays anything.
-        case .serverError, .cannotPlayDirectly, nil:
+        case .serverError, .cannotPlay, nil:
             return "The server ran into a problem. Try again in a moment."
         }
     }

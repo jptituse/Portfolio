@@ -12,10 +12,15 @@ final class FakePlaybackEngine: PlaybackEngine {
     var currentTime: Duration = .zero
     var duration: Duration = .zero
     var surface: AnyView { AnyView(EmptyView()) }
+    var subtitles: AnyView { AnyView(EmptyView()) }
 
     /// What it was asked to open, and from where.
     private(set) var loads: [(source: PlaybackSource, position: Duration)] = []
     private(set) var isPlaying = false
+    /// The tracks it was asked to switch to, in order; nil for subtitles off.
+    private(set) var audioTrackChoices: [MediaTrack.ID] = []
+    private(set) var subtitleTrackChoices: [MediaTrack.ID?] = []
+    private(set) var reducesLoudSounds = false
     private(set) var isStopped = false
     /// Thrown from `load`, as an engine that can't open the source would, also saying it failed.
     var loadFailure: String?
@@ -42,6 +47,9 @@ final class FakePlaybackEngine: PlaybackEngine {
             status = .paused
             await withCheckedContinuation { heldLoad = $0 }
         }
+        // Open, it waits to be told to play.
+        isPlaying = false
+        status = .paused
     }
 
     func play() {
@@ -50,7 +58,20 @@ final class FakePlaybackEngine: PlaybackEngine {
     }
 
     func pause() {
+        isPlaying = false
         status = .paused
+    }
+
+    func selectAudioTrack(_ track: MediaTrack) {
+        audioTrackChoices.append(track.id)
+    }
+
+    func selectSubtitleTrack(_ track: MediaTrack?) {
+        subtitleTrackChoices.append(track?.id)
+    }
+
+    func setReducesLoudSounds(_ reduces: Bool) {
+        reducesLoudSounds = reduces
     }
 
     func seek(to position: Duration) async {

@@ -2,8 +2,11 @@ import Foundation
 import Observation
 
 /// One profile's own settings, kept in `UserDefaults` under the profile: what Home's banner shows, the
-/// streaming quality and languages to play in, skipping, and spoilers. What each affects reads it when
-/// it needs it.
+/// streaming quality and languages to play in, skipping, and spoilers, and how each item played last.
+/// What each affects reads it when it needs it.
+///
+/// **How an item played last** is kept for its group, an episode's show, so changing it for one of the
+/// group's items changes it for them all. A movie, in no group, keeps its own.
 ///
 /// Some are kept before what reads them is built: the streaming quality, languages, skip times and
 /// buttons are read by the player once it does each.
@@ -88,6 +91,31 @@ public final class ProfilePreferences {
     /// How far a click skips unless it's been chosen otherwise.
     public static let defaultSkip = Duration.seconds(30)
 
+    /// Whether `item`'s subtitles show as the file has them (Style's Original): as it, or its group, played
+    /// last, else not.
+    public func showsOriginalSubtitles(for item: MediaItem) -> Bool {
+        played(Key.originalSubtitles, for: item) ?? false
+    }
+
+    public func setShowsOriginalSubtitles(_ original: Bool, for item: MediaItem) {
+        setPlayed(original, Key.originalSubtitles, for: item)
+    }
+
+    /// How `item`, or its group, played last, as `setting` names it.
+    private func played<Value: Codable>(_ setting: String, for item: MediaItem) -> Value? {
+        defaults.decoded(Value?.self, forKey: prefix + Self.key(setting, for: item), or: nil)
+    }
+
+    /// Keeps `value` for `item`, or its group.
+    private func setPlayed<Value: Codable>(_ value: Value, _ setting: String, for item: MediaItem) {
+        defaults.setEncoded(value, forKey: prefix + Self.key(setting, for: item))
+    }
+
+    /// Where `setting` is kept for `item`: under its group, an episode's show, else under itself.
+    private static func key(_ setting: String, for item: MediaItem) -> String {
+        item.episode?.seriesID.map { Key.group($0, setting) } ?? Key.item(item.id, setting)
+    }
+
     private func save<Value: Encodable>(_ value: Value, _ key: String) {
         defaults.setEncoded(value, forKey: prefix + key)
     }
@@ -103,6 +131,9 @@ public final class ProfilePreferences {
         static let segmentSkipping = "segmentSkipping"
         static let credits = "credits"
         static let hidesSpoilers = "hidesSpoilers"
+        static let originalSubtitles = "originalSubtitles"
+        static func item(_ id: String, _ setting: String) -> String { "items/\(id)/\(setting)" }
+        static func group(_ id: String, _ setting: String) -> String { "groups/\(id)/\(setting)" }
     }
 }
 
