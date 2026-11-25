@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import PortfolioShared
 import PortfolioSharedJellyfinClient
 import PortfolioSharedPlaybackEngine
@@ -13,6 +14,10 @@ struct PlayerViewModelTests {
     let stream = PlaybackSource(url: URL(string: "https://media.test/arrival.mkv")!, httpHeaders: ["Authorization": "token"])
 
     let reports = Reports()
+    let captionStyles = FakeCaptionStyles()
+    /// Each time a player kept whether Style is Original for its item.
+    let originals = Recorded<Bool>()
+    let preferences = UserDefaults(suiteName: "PlayerViewModelTests-\(UUID().uuidString)")!
 
     func player(
         startingAt position: Duration = .zero,
@@ -23,7 +28,7 @@ struct PlayerViewModelTests {
             title: "Arrival",
             makeEngine: { engine },
             startingAt: { position },
-            source: source,
+            source: { _ in try await source() },
             describe: { _ in "Couldn't reach Living Room." },
             reportStarted: { [reports] in reports.started.append(($0, $1)) },
             reportProgress: { [reports] in reports.progress.append(($0, $1, $2)) },
@@ -218,7 +223,7 @@ struct PlayerViewModelTests {
         let player = PlayerViewModel(
             title: "Arrival",
             makeEngine: { engine },
-            source: { stream },
+            source: { _ in stream },
             describe: { _ in "" },
             reportStarted: { _, _ in await slow.record("started") },
             reportProgress: { _, _, isPaused in await slow.record(isPaused ? "paused" : "playing") },
@@ -286,11 +291,12 @@ struct PlayerViewModelTests {
 
     /// A player already playing `duration` of media, from `position`.
     func playingPlayer(duration: Duration = .seconds(7_200), at position: Duration = .seconds(65), controlsTimeout: Duration = .seconds(60)) async -> PlayerViewModel {
-        let player = PlayerViewModel(title: "Arrival", makeEngine: { engine }, source: { stream }, describe: { _ in "" }, controlsTimeout: controlsTimeout)
+        let player = PlayerViewModel(title: "Arrival", makeEngine: { engine }, source: { _ in stream }, describe: { _ in "" }, controlsTimeout: controlsTimeout)
         player.start()
         await waitUntil { engine.isPlaying }
         engine.duration = duration
         engine.currentTime = position
+        await waitUntil { player.position == position }
         return player
     }
 
@@ -451,12 +457,42 @@ struct PlayerViewModelTests {
         #expect(movie.remainingLabel == "-1:58:55")
 
         engine.currentTime = .seconds(3_725)
+        await waitUntil { movie.elapsedLabel != "01:05" }
         #expect(movie.elapsedLabel == "1:02:05")
 
         engine.currentTime = .seconds(65)
         engine.duration = .seconds(1_500)
+        await waitUntil { movie.elapsedLabel != "1:02:05" }
         #expect(movie.elapsedLabel == "01:05")
         #expect(movie.remainingLabel == "-23:55")
+    }
+
+    @Test func showsTheTimeOtherwiseInAnotherSecondOrAStepOfTheBarOn() {
+        let movie = Duration.seconds(7_200)
+        #expect(!PlayerViewModel.shows(.milliseconds(65_999), otherwiseThan: .seconds(65), in: movie))
+        #expect(PlayerViewModel.shows(.seconds(66), otherwiseThan: .milliseconds(65_999), in: movie))
+        #expect(PlayerViewModel.shows(.seconds(64), otherwiseThan: .seconds(65), in: movie))
+        // A step of the bar is a 2,000th of a video 20 seconds long: 10 milliseconds.
+        let clip = Duration.seconds(20)
+        #expect(!PlayerViewModel.shows(.milliseconds(5_009), otherwiseThan: .seconds(5), in: clip))
+        #expect(PlayerViewModel.shows(.milliseconds(5_011), otherwiseThan: .seconds(5), in: clip))
+        #expect(!PlayerViewModel.shows(.milliseconds(5_500), otherwiseThan: .seconds(5), in: .zero))
+    }
+
+    /// The engine's time changes about 10 times a second, and everything showing the time is drawn
+    /// again whenever what it reads changes.
+    @Test func changesTheTimeItShowsOnlyWhenWhatItShowsWouldChange() async {
+        let movie = await playingPlayer(duration: .seconds(7_200), at: .seconds(65))
+        let changes = TimeChanges()
+        changes.watch(movie)
+
+        engine.currentTime = .milliseconds(65_400)
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(changes.count == 0)
+
+        engine.currentTime = .seconds(66)
+        await waitUntil { changes.count > 0 }
+        #expect(movie.elapsedLabel == "01:06")
     }
 
     @Test func namesTheShowAndEpisodeAboveAnEpisodesTitle() {
@@ -473,12 +509,28 @@ struct PlayerViewModelTests {
     // MARK: From the profile's server
 
     /// The profile of someone signed in to `mock`.
-    func profile(on mock: MockJellyfinServer) async throws -> CurrentProfileViewModel {
+    func profile(on mock: MockJellyfinServer, defaults: UserDefaults = .forTesting()) async throws -> CurrentProfileViewModel {
         let client = JellyfinServerClient.mocked
         let sessionManager = SessionManager(store: MediaServerStore(storage: InMemorySecureStorage()), authority: client)
         let server = try await client.validateServer(at: mock.url)
         try sessionManager.signIn(try await client.signIn(to: server, username: "alex", password: "hunter2"))
-        return CurrentProfileViewModel(client: client, sessionManager: sessionManager, devicePreferences: DevicePreferences(defaults: .forTesting()))
+        return CurrentProfileViewModel(client: client, sessionManager: sessionManager, devicePreferences: DevicePreferences(defaults: .forTesting()), defaults: defaults)
+    }
+
+    @Test func keepsOriginalForTheItemThePlayerPlays() async throws {
+        let arrival = MockJellyfinServer.Item(name: "Arrival")
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+        let item = MediaItem(id: arrival.id, name: "Arrival", kind: .movie)
+        let player = profile.makePlayer(for: item) { engine }
+        #expect(!player.showsOriginalSubtitles)
+
+        player.chooseOriginalSubtitles()
+
+        #expect(profile.preferences?.showsOriginalSubtitles(for: item) == true)
+        #expect(profile.makePlayer(for: item) { FakePlaybackEngine() }.showsOriginalSubtitles)
+        let dune = MediaItem(id: "dune", name: "Dune", kind: .movie)
+        #expect(!profile.makePlayer(for: dune) { FakePlaybackEngine() }.showsOriginalSubtitles)
     }
 
     @Test func playsAnItemFromTheProfilesServerAsItIs() async throws {
@@ -582,9 +634,10 @@ struct PlayerViewModelTests {
         #expect(mock.playbackInfoRequests.count == 2)
     }
 
-    @Test func saysWhenTheProfilesServerWontSendTheItemAsItIs() async throws {
+    @Test func saysWhenTheProfilesServerWontSendTheItemEitherWay() async throws {
         var arrival = MockJellyfinServer.Item(name: "Arrival")
         arrival.isDirectlyPlayable = false
+        arrival.isTranscodable = false
         let mock = MockJellyfinServer(name: "Living Room", items: [arrival])
         let profile = try await profile(on: mock)
 
@@ -592,7 +645,733 @@ struct PlayerViewModelTests {
         player.start()
         await waitUntil { player.message != nil }
 
-        #expect(player.message == "Living Room can't send this as it is, and playing it another way isn't supported yet.")
+        #expect(player.message == "Living Room can't send this in a form that plays here.")
+    }
+
+    @Test func playsTheStreamTheProfilesServerMakesWhenItWontSendTheFileAsItIs() async throws {
+        var arrival = MockJellyfinServer.Item(name: "Arrival")
+        arrival.isDirectlyPlayable = false
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+
+        let player = profile.makePlayer(for: MediaItem(id: arrival.id, name: "Arrival", kind: .movie)) { engine }
+        player.start()
+        await waitUntil { engine.isPlaying }
+
+        #expect(engine.loads.first?.source.method == .transcode)
+        #expect(engine.loads.first?.source.url.path() == "/videos/\(arrival.id)/master.m3u8")
+    }
+
+    @Test func aLowerQualityPlaysTheProfilesServersStreamAndAutoStopsIt() async throws {
+        let arrival = MockJellyfinServer.Item(name: "Arrival")
+        let mock = MockJellyfinServer(items: [arrival])
+        let profile = try await profile(on: mock)
+        let player = profile.makePlayer(for: MediaItem(id: arrival.id, name: "Arrival", kind: .movie)) { engine }
+        player.start()
+        await waitUntil { engine.isPlaying }
+        engine.currentTime = .seconds(600)
+
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { engine.loads.count == 2 && engine.isPlaying }
+        let stream = try #require(engine.loads.last?.source)
+        #expect(stream.method == .transcode)
+        #expect(engine.loads.last?.position == .seconds(600))
+
+        player.selectQuality(.auto)
+        await waitUntil { mock.stoppedTranscodes.count == 1 }
+        #expect(engine.loads.last?.source.method == .directPlay)
+        #expect(mock.stoppedTranscodes == [stream.playSessionID])
+    }
+
+    // MARK: Tracks and quality
+
+    /// A film playing as it is, with audio and subtitles in it, a subtitle file and tracks only a stream
+    /// the server makes carries.
+    let film = PlaybackSource(
+        url: URL(string: "https://media.test/arrival.mkv")!,
+        versionID: "arrival",
+        playSessionID: "session-1",
+        audioTracks: [
+            MediaTrack(id: 3, title: "English - Dolby Digital+ - 5.1 - Default", language: "eng", isDefault: true, isText: false),
+            MediaTrack(id: 4, title: "Spanish - AAC - Stereo", language: "spa", isText: false),
+            MediaTrack(id: 7, title: "Commentary - AAC - Stereo - External", isText: false, delivery: .transcoded),
+        ],
+        subtitleTracks: [
+            MediaTrack(id: 0, title: "English - SDH - SRT - External", delivery: .file(URL(string: "https://media.test/0.srt")!)),
+            MediaTrack(id: 1, title: "French - PGSSUB - External", isText: false, delivery: .transcoded),
+            MediaTrack(id: 5, title: "English - SUBRIP", isDefault: true),
+            MediaTrack(id: 6, title: "Spanish - PGSSUB", isText: false),
+        ],
+        audioTrack: 3,
+        bitrate: 20_000_000
+    )
+
+    /// A player playing `film`, from `position`, whose server makes a stream for each request after the
+    /// first, unless `failsAfterStarting`.
+    func filmPlayer(
+        at position: Duration = .seconds(65),
+        failsAfterStarting: Bool = false,
+        source: PlaybackSource? = nil,
+        defaults: PlaybackDefaults = PlaybackDefaults()
+    ) async -> (PlayerViewModel, Streams) {
+        let streams = Streams(first: source ?? film, failsAfterFirst: failsAfterStarting)
+        let player = PlayerViewModel(
+            title: "Arrival",
+            makeEngine: { engine },
+            source: { [streams] in try await streams.source(for: $0) },
+            describe: { _ in "" },
+            stopTranscoding: { [streams] in streams.stopped.append($0) },
+            reportStarted: { [reports] in reports.started.append(($0, $1)) },
+            reportProgress: { [reports] in reports.progress.append(($0, $1, $2)) },
+            reportStopped: { [reports] in reports.stopped.append(($0, $1)) },
+            captionStyles: captionStyles.styles,
+            preferences: preferences,
+            playbackDefaults: defaults,
+            rememberOriginalSubtitles: { [originals] in originals.values.append($0) }
+        )
+        player.start()
+        await waitUntil { engine.isPlaying }
+        engine.currentTime = position
+        return (player, streams)
+    }
+
+    // MARK: Settings
+
+    @Test func startsInSettingsAudioLanguageInTheFileAsItIs() async {
+        let (player, streams) = await filmPlayer(defaults: PlaybackDefaults(audioLanguage: .language("spa")))
+
+        #expect(player.audioTrack == 4)
+        #expect(engine.loads.first?.source.audioTrack == 4)
+        // Changed in the file, without asking the server again.
+        #expect(streams.requests == [PlaybackRequest()])
+    }
+
+    @Test func startsOnTheTrackTheFileMarksForOriginal() async {
+        var spanish = film
+        spanish.audioTrack = 4
+        let (player, _) = await filmPlayer(source: spanish, defaults: PlaybackDefaults(audioLanguage: .original))
+
+        #expect(player.audioTrack == 3)
+    }
+
+    @Test func keepsTheServersPickWithoutATrackInSettingsLanguage() async {
+        let (player, streams) = await filmPlayer(defaults: PlaybackDefaults(audioLanguage: .language("jpn")))
+
+        #expect(player.audioTrack == 3)
+        #expect(streams.requests.count == 1)
+    }
+
+    @Test func asksAgainForAStreamTheServerMakesInSettingsLanguageAndStopsTheFirst() async {
+        let stream = PlaybackSource(
+            url: URL(string: "https://media.test/master.m3u8")!,
+            versionID: "arrival",
+            playSessionID: "session-1",
+            method: .transcode,
+            audioTracks: film.audioTracks,
+            subtitleTracks: film.subtitleTracks,
+            audioTrack: 3
+        )
+
+        let (player, streams) = await filmPlayer(source: stream, defaults: PlaybackDefaults(audioLanguage: .language("spa")))
+
+        #expect(streams.requests == [PlaybackRequest(), PlaybackRequest(versionID: "arrival", audioTrack: 4, subtitles: .off)])
+        #expect(streams.stopped.map(\.playSessionID) == ["session-1"])
+        #expect(engine.loads.count == 1)
+        #expect(player.audioTrack == 4)
+    }
+
+    @Test func showsSubtitlesInSettingsLanguageWhereTheServerWouldShowSome() async {
+        let languages = PlaybackSource(
+            url: film.url,
+            versionID: "arrival",
+            audioTracks: film.audioTracks,
+            subtitleTracks: [
+                MediaTrack(id: 5, title: "English - SUBRIP", language: "eng", isDefault: true),
+                MediaTrack(id: 8, title: "Spanish - Forced - SUBRIP", language: "spa", isForced: true),
+                MediaTrack(id: 9, title: "Spanish - SUBRIP", language: "spa"),
+            ],
+            audioTrack: 3,
+            subtitleTrack: 5
+        )
+
+        let (player, streams) = await filmPlayer(source: languages, defaults: PlaybackDefaults(subtitleLanguage: "spa"))
+
+        #expect(player.showsSubtitles)
+        #expect(player.subtitleTrack == 9)
+        #expect(streams.requests.count == 1)
+    }
+
+    @Test func showsNoSubtitlesForSettingsWhereTheServerWouldShowNone() async {
+        let (player, _) = await filmPlayer(defaults: PlaybackDefaults(subtitleLanguage: "spa"))
+
+        #expect(!player.showsSubtitles)
+    }
+
+    @Test func streamsAutoNoFasterThanSettingsSay() async {
+        let (player, streams) = await filmPlayer(at: .seconds(600), defaults: PlaybackDefaults(autoMaxBitrate: 10_000_000))
+        #expect(streams.requests.first == PlaybackRequest(maxBitrate: 10_000_000))
+
+        player.selectQuality(.maxBitrate(4_000_000))
+        await waitUntil { engine.loads.count == 2 && engine.isPlaying }
+        player.selectQuality(.auto)
+        await waitUntil { streams.requests.count == 3 }
+
+        #expect(streams.requests.last?.maxBitrate == 10_000_000)
+        #expect(streams.requests.last?.playsOriginal == false)
+    }
+
+    @Test func listsTheTracksAndWhatsPlaying() async {
+        let (player, _) = await filmPlayer()
+
+        #expect(player.audioTracks.map(\.id) == [3, 4, 7])
+        #expect(player.audioTrack == 3)
+        #expect(player.subtitleTracks.map(\.id) == [0, 1, 5, 6])
+        #expect(!player.showsSubtitles)
+        // On would show the ones the media marks.
+        #expect(player.subtitleTrack == 5)
+    }
+
+    @Test func switchesAudioInTheFilePlayingAsItIs() async {
+        let (player, streams) = await filmPlayer()
+
+        player.selectAudioTrack(4)
+
+        #expect(engine.audioTrackChoices == [4])
+        #expect(player.audioTrack == 4)
+        #expect(streams.requests.count == 1)
+        await waitUntil { !reports.progress.isEmpty }
+        #expect(reports.progress.last?.source.audioTrack == 4)
+    }
+
+    @Test func asksForAStreamWithAudioOnlyTheServerCanAdd() async {
+        let (player, streams) = await filmPlayer(at: .seconds(600))
+
+        player.selectAudioTrack(7)
+        await waitUntil { engine.loads.count == 2 && engine.isPlaying }
+
+        #expect(streams.requests.last == PlaybackRequest(versionID: "arrival", audioTrack: 7, subtitles: .off, startPosition: .seconds(600)))
+        #expect(engine.loads.last?.position == .seconds(600))
+        #expect(player.audioTrack == 7)
+        #expect(engine.audioTrackChoices.isEmpty)
+    }
+
+    @Test func turnsSubtitlesOnAndOffInTheStream() async {
+        let (player, streams) = await filmPlayer()
+
+        player.showSubtitles(true)
+        #expect(player.showsSubtitles)
+        #expect(player.subtitleTrack == 5)
+        player.selectSubtitleTrack(0)
+        player.showSubtitles(false)
+        #expect(!player.showsSubtitles)
+        // On again shows the ones shown last.
+        #expect(player.subtitleTrack == 0)
+        player.showSubtitles(true)
+
+        #expect(engine.subtitleTrackChoices == [5, 0, nil, 0])
+        #expect(streams.requests.count == 1)
+    }
+
+    @Test func asksForAStreamToDrawSubtitlesInAndAnotherToTakeThemOut() async {
+        let (player, streams) = await filmPlayer(defaults: original)
+
+        player.selectSubtitleTrack(1)
+        await waitUntil { engine.loads.count == 2 }
+        #expect(streams.requests.last?.subtitles == .track(1))
+        #expect(player.subtitleTrack == 1)
+
+        player.showSubtitles(false)
+        await waitUntil { engine.loads.count == 3 }
+        #expect(streams.requests.last?.subtitles == .off)
+        #expect(!player.showsSubtitles)
+    }
+
+    @Test func offersAutoOriginalThenTheBitratesBelowTheFiles() async {
+        let (player, _) = await filmPlayer()
+
+        #expect(player.qualities.map(\.name) == ["Auto", "Original", "15 Mbps", "10 Mbps", "8 Mbps", "6 Mbps", "4 Mbps", "3 Mbps", "1.5 Mbps", "720 kbps", "420 kbps"])
+        #expect(player.quality == .auto)
+    }
+
+    @Test func offersEveryBitrateWhenTheFilesIsntKnown() {
+        #expect(PlaybackQuality.choices(forBitrate: nil).count == PlaybackQuality.bitrates.count + 2)
+        #expect(PlaybackQuality.choices(forBitrate: nil)[2].name == "120 Mbps")
+    }
+
+    @Test func originalAsksForNothingWhileTheFilePlaysAsItIs() async {
+        let (player, streams) = await filmPlayer()
+
+        player.selectQuality(.original)
+
+        #expect(player.quality == .original)
+        #expect(streams.requests.count == 1)
+        #expect(engine.loads.count == 1)
+    }
+
+    @Test func originalPlaysTheFileWhereTheServerMadeAStream() async {
+        let stream = PlaybackSource(
+            url: URL(string: "https://media.test/master-1.m3u8")!,
+            versionID: "arrival",
+            playSessionID: "session-1",
+            method: .transcode,
+            audioTracks: film.audioTracks,
+            subtitleTracks: film.subtitleTracks,
+            audioTrack: 3,
+            bitrate: 20_000_000
+        )
+        let (player, streams) = await filmPlayer(at: .seconds(600), source: stream)
+
+        player.selectQuality(.original)
+        await waitUntil { engine.loads.count == 2 && !streams.stopped.isEmpty }
+
+        #expect(streams.requests.last == PlaybackRequest(versionID: "arrival", audioTrack: 3, subtitles: .off, playsOriginal: true, startPosition: .seconds(600)))
+        #expect(engine.loads.last?.source.method == .directPlay)
+        #expect(engine.loads.last?.position == .seconds(600))
+        #expect(player.quality == .original)
+        #expect(streams.stopped.map(\.playSessionID) == ["session-1"])
+    }
+
+    @Test func autoGoesOnPlayingTheFileTheServerWouldSendAsItIs() async {
+        let (player, streams) = await filmPlayer()
+        player.selectQuality(.original)
+
+        player.selectQuality(.auto)
+        await waitUntil { player.quality == .auto }
+
+        #expect(streams.requests.last?.playsOriginal == false)
+        #expect(engine.loads.count == 1)
+        #expect(streams.stopped.isEmpty)
+    }
+
+    @Test func playsALowerQualityFromWherePlaybackIsAndStopsNothingItPlayedAsItIs() async {
+        let (player, streams) = await filmPlayer(at: .seconds(600))
+        player.selectAudioTrack(4)
+
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { engine.loads.count == 2 && engine.isPlaying && !streams.stopped.isEmpty }
+
+        #expect(streams.requests.last == PlaybackRequest(versionID: "arrival", audioTrack: 4, subtitles: .off, maxBitrate: 8_000_000, startPosition: .seconds(600)))
+        #expect(engine.loads.last?.position == .seconds(600))
+        #expect(player.quality == .maxBitrate(8_000_000))
+        // The server's client stops only a stream it made.
+        #expect(streams.stopped.map(\.playSessionID) == ["session-1"])
+        await waitUntil { reports.progress.last?.source.method == .transcode }
+        #expect(reports.progress.last?.source.playSessionID == "session-2")
+    }
+
+    @Test func stopsTheStreamItMovesOnFrom() async {
+        let (player, streams) = await filmPlayer()
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { engine.loads.count == 2 }
+
+        player.selectQuality(.auto)
+        await waitUntil { streams.stopped.count == 2 }
+
+        #expect(streams.requests.last?.maxBitrate == nil)
+        #expect(streams.stopped.last?.playSessionID == "session-2")
+        #expect(player.quality == .auto)
+    }
+
+    @Test func playsOnWhenTheServerCantSendAnotherStream() async {
+        let (player, streams) = await filmPlayer(failsAfterStarting: true)
+
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { streams.requests.count == 2 }
+        for _ in 0..<20 { await Task.yield() }
+
+        #expect(engine.loads.count == 1)
+        #expect(engine.isPlaying)
+        #expect(player.quality == .auto)
+    }
+
+    @Test func staysPausedThroughAChangeOfStream() async {
+        let (player, _) = await filmPlayer()
+        player.togglePlayPause()
+
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { engine.loads.count == 2 }
+        for _ in 0..<20 { await Task.yield() }
+
+        #expect(player.isPaused)
+        #expect(!engine.isPlaying)
+    }
+
+    @Test func stopsAStreamItWontPlayAfterAll() async {
+        let (player, streams) = await filmPlayer()
+        streams.holdsRequests = true
+
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { streams.requests.count == 2 }
+        player.close()
+        streams.releaseRequests()
+        await waitUntil { streams.stopped.count == 1 }
+
+        #expect(engine.loads.count == 1)
+        #expect(streams.stopped.map(\.playSessionID) == ["session-2"])
+    }
+
+    @Test func staysWherePlaybackWasWhileTheNextStreamOpens() async {
+        engine.duration = .seconds(7_200)
+        let (player, _) = await filmPlayer(at: .seconds(600))
+        engine.currentTime = .seconds(601)
+        await waitUntil { player.position == .seconds(601) }
+        engine.holdsLoad = true
+
+        player.selectQuality(.maxBitrate(8_000_000))
+        await waitUntil { engine.loads.count == 2 }
+        // Opening another stream, AetherEngine says it's at the start, and doesn't yet know how long it is.
+        engine.currentTime = .zero
+        engine.duration = .zero
+        #expect(player.position == .seconds(601))
+        #expect(player.duration == .seconds(7_200))
+        #expect(player.progress == 601.0 / 7_200)
+        #expect(player.remainingLabel == "-1:49:59")
+
+        player.close()
+        engine.finishLoading()
+        await waitUntil { !reports.stopped.isEmpty }
+        #expect(reports.stopped.map(\.position) == [.seconds(601)])
+    }
+
+    // MARK: Menus
+
+    func item(_ id: PlayerMenu.Item.ID, in menu: PlayerMenu?) throws -> PlayerMenu.Item {
+        try #require(menu?.sections.flatMap(\.items).first { $0.id == id })
+    }
+
+    @Test func listsTheMenusInTheSystemPlayersOrder() async {
+        let (player, _) = await filmPlayer()
+        #expect(player.menus.map(\.id) == ["subtitles", "audio", "more"])
+        #expect(player.menus.map(\.title) == ["Subtitles", "Audio", "More"])
+    }
+
+    @Test func leavesOutSubtitlesWithoutAny() async {
+        let (player, _) = await filmPlayer(source: PlaybackSource(url: film.url, audioTracks: film.audioTracks, audioTrack: 3))
+        #expect(player.menus.map(\.id) == ["audio", "more"])
+    }
+
+    @Test func theAudioMenuHasReduceLoudSoundsThenTheTracks() async throws {
+        let (player, _) = await filmPlayer()
+        let audio = try #require(player.menus.first { $0.id == "audio" })
+
+        #expect(audio.sections.map(\.header) == ["Audio Adjustments", "Audio Track"])
+        #expect(audio.sections[0].items.map(\.title) == ["Reduce Loud Sounds"])
+        #expect(audio.sections[1].items.map(\.title) == film.audioTracks.map(\.title))
+        #expect(audio.sections[1].items.map(\.isChecked) == [true, false, false])
+    }
+
+    @Test func reducingLoudSoundsStaysInTheMenuAndIsRemembered() async throws {
+        let (player, _) = await filmPlayer()
+        player.openMenu("audio")
+
+        player.choose(try item("reduceLoudSounds", in: player.openMenu))
+
+        #expect(player.openMenu?.id == "audio")
+        #expect(try item("reduceLoudSounds", in: player.openMenu).isChecked)
+        #expect(engine.reducesLoudSounds)
+        // The next player starts with it.
+        let next = FakePlaybackEngine()
+        _ = PlayerViewModel(title: "Arrival", makeEngine: { next }, source: { _ in film }, describe: { _ in "" }, preferences: preferences)
+        #expect(next.reducesLoudSounds)
+    }
+
+    @Test func choosingATrackClosesTheMenu() async throws {
+        let (player, _) = await filmPlayer()
+        player.openMenu("audio")
+
+        player.choose(try item("4", in: player.openMenu))
+
+        #expect(player.openMenu == nil)
+        #expect(player.openMenuRoot == nil)
+        #expect(engine.audioTrackChoices == [4])
+    }
+
+    @Test func theSubtitlesMenuHasOnAndOffThenLanguageAndStyle() async throws {
+        let (player, _) = await filmPlayer()
+        let subtitles = try #require(player.menus.first { $0.id == "subtitles" })
+
+        #expect(subtitles.sections.map(\.header) == ["Subtitles", nil])
+        #expect(subtitles.sections[0].items.map(\.title) == ["On", "Off"])
+        #expect(subtitles.sections[0].items.map(\.isChecked) == [false, true])
+        #expect(subtitles.sections[1].items.map(\.title) == ["Language", "Style"])
+        // What On shows, and the style chosen.
+        #expect(subtitles.sections[1].items.map(\.detail) == ["English - SUBRIP", "Transparent Background"])
+    }
+
+    @Test func aSubmenuOpensInPlaceOnWhatsChosenAndBackReturnsToWhereItOpened() async throws {
+        let (player, _) = await filmPlayer()
+
+        player.openMenu("subtitles")
+        #expect(player.menuFocus == "on")
+        #expect(player.openMenuDepth == 1)
+
+        player.choose(try item("language", in: player.openMenu))
+        #expect(player.openMenu?.id == "subtitles.language")
+        #expect(player.openMenu?.sections.map(\.header) == ["Language"])
+        #expect(player.openMenuRoot == "subtitles")
+        #expect(player.menuFocus == "5")
+        #expect(player.openMenuDepth == 2)
+
+        player.goBackInMenu()
+        #expect(player.openMenu?.id == "subtitles")
+        #expect(player.menuFocus == "language")
+        #expect(player.openMenuDepth == 1)
+
+        player.goBackInMenu()
+        #expect(player.openMenu == nil)
+        #expect(player.openMenuRoot == nil)
+        #expect(player.openMenuDepth == 0)
+    }
+
+    @Test func findsAnyMenuOrSubmenuOpenOrNot() async throws {
+        let (player, _) = await filmPlayer()
+
+        #expect(player.menu("audio")?.title == "Audio")
+        #expect(player.menu("more.quality")?.sections.map(\.header) == ["Quality"])
+        #expect(player.menu("subtitles.language")?.title == "Language")
+        #expect(player.menu("nothing") == nil)
+    }
+
+    @Test func choosingSubtitlesInLanguageShowsThem() async throws {
+        let (player, _) = await filmPlayer()
+        player.openMenu("subtitles")
+        player.choose(try item("language", in: player.openMenu))
+
+        player.choose(try item("0", in: player.openMenu))
+
+        #expect(player.openMenu == nil)
+        #expect(player.showsSubtitles)
+        #expect(engine.subtitleTrackChoices == [0])
+    }
+
+    @Test func choosingAStyleChoosesItForEveryAppAndShowsHowEachLooks() async throws {
+        let (player, _) = await filmPlayer()
+        player.openMenu("subtitles")
+        player.choose(try item("style", in: player.openMenu))
+        #expect(player.openMenu?.sections.flatMap(\.items).map(\.title) == ["Original", "Classic", "Large Text", "Transparent Background"])
+        #expect(player.menuFocus == "transparent")
+        #expect(try item("large", in: player.openMenu).captionStyle?.sizeScale == 1.5)
+
+        player.choose(try item("large", in: player.openMenu))
+
+        #expect(captionStyles.chosen == "large")
+        #expect(player.openMenu == nil)
+        let subtitles = try #require(player.menus.first { $0.id == "subtitles" })
+        #expect(try item("style", in: subtitles).detail == "Large Text")
+    }
+
+    // MARK: Original
+
+    /// `film`, showing the Spanish subtitles drawn as pictures in the file.
+    var filmWithPictureSubtitles: PlaybackSource {
+        var source = film
+        source.subtitleTrack = 6
+        return source
+    }
+
+    let original = PlaybackDefaults(showsOriginalSubtitles: true)
+
+    @Test func styleOffersOriginalChosenOnlyOnceItsPickedAndKeepsItForTheItem() async throws {
+        let (player, _) = await filmPlayer()
+        player.openMenu("subtitles")
+        player.choose(try item("style", in: player.openMenu))
+        #expect(try item("original", in: player.openMenu).captionStyle == .original)
+        #expect(player.openMenu?.sections.flatMap(\.items).filter(\.isChecked).map(\.id) == ["transparent"])
+
+        player.choose(try item("original", in: player.openMenu))
+
+        #expect(player.showsOriginalSubtitles)
+        #expect(originals.values == [true])
+        let subtitles = try #require(player.menus.first { $0.id == "subtitles" })
+        #expect(try item("style", in: subtitles).detail == "Original")
+        let style = try #require(player.menu("subtitles.style"))
+        #expect(style.sections.flatMap(\.items).filter(\.isChecked).map(\.id) == ["original"])
+        // The system's style stays as it was.
+        #expect(captionStyles.chosen == "transparent")
+
+        player.chooseCaptionStyle("large")
+        #expect(originals.values == [true, false])
+    }
+
+    @Test func startsOnOriginalWhereTheItemWasLastPlayedWithIt() async {
+        let (player, _) = await filmPlayer(source: filmWithPictureSubtitles, defaults: original)
+
+        #expect(player.showsOriginalSubtitles)
+        #expect(player.showsSubtitles)
+        #expect(player.subtitleTrack == 6)
+        #expect(originals.values.isEmpty)
+    }
+
+    @Test func startsWithSubtitlesDrawnAsPicturesChosenButOffWithoutOriginal() async throws {
+        let (player, streams) = await filmPlayer(source: filmWithPictureSubtitles)
+
+        #expect(!player.showsSubtitles)
+        #expect(engine.loads.first?.source.subtitleTrack == nil)
+        #expect(streams.requests.count == 1)
+        #expect(player.subtitleTrack == 6)
+        let language = try #require(player.menu("subtitles.language"))
+        #expect(language.sections.flatMap(\.items).filter(\.isChecked).map(\.id) == ["6"])
+
+        // Original never turns them on itself; On does.
+        player.chooseOriginalSubtitles()
+        #expect(!player.showsSubtitles)
+        player.showSubtitles(true)
+        #expect(player.showsSubtitles)
+        #expect(engine.subtitleTrackChoices == [6])
+    }
+
+    @Test func asksAgainWithoutSubtitlesTheServerWouldDrawIntoThePicture() async {
+        var burnedIn = film
+        burnedIn.subtitleTrack = 1
+        let (player, streams) = await filmPlayer(source: burnedIn)
+
+        #expect(streams.requests.last == PlaybackRequest(versionID: "arrival", audioTrack: 3, subtitles: .off))
+        #expect(!player.showsSubtitles)
+    }
+
+    @Test func choosingSubtitlesDrawnAsPicturesWithoutOriginalKeepsTheStyleAndThemOff() async {
+        let (player, _) = await filmPlayer()
+        player.showSubtitles(true)
+
+        player.selectSubtitleTrack(6)
+
+        #expect(!player.showsOriginalSubtitles)
+        #expect(!player.showsSubtitles)
+        #expect(player.subtitleTrack == 6)
+        #expect(engine.subtitleTrackChoices == [5, nil])
+        #expect(originals.values.isEmpty)
+    }
+
+    @Test func choosingSubtitlesDrawnAsPicturesWithOriginalShowsThem() async {
+        let (player, _) = await filmPlayer(defaults: original)
+
+        player.selectSubtitleTrack(6)
+
+        #expect(player.showsSubtitles)
+        #expect(engine.subtitleTrackChoices == [6])
+    }
+
+    @Test func choosingAStyleTurnsOffSubtitlesDrawnAsPicturesUntilOriginalAgain() async throws {
+        let (player, _) = await filmPlayer(source: filmWithPictureSubtitles, defaults: original)
+
+        player.chooseCaptionStyle("large")
+        #expect(!player.showsOriginalSubtitles)
+        #expect(!player.showsSubtitles)
+        #expect(player.subtitleTrack == 6)
+
+        player.chooseOriginalSubtitles()
+        #expect(!player.showsSubtitles)
+        player.showSubtitles(true)
+        #expect(engine.subtitleTrackChoices == [nil, 6])
+    }
+
+    @Test func choosingAStyleKeepsTextSubtitles() async throws {
+        let (player, _) = await filmPlayer(defaults: original)
+        player.showSubtitles(true)
+
+        player.chooseCaptionStyle("large")
+
+        #expect(player.showsSubtitles)
+    }
+
+    @Test func onShowsTextWithoutOriginal() async {
+        let (player, _) = await filmPlayer(source: filmWithPictureSubtitles)
+
+        player.showSubtitles(true)
+
+        #expect(player.showsSubtitles)
+        #expect(player.subtitleTrack == 5)
+    }
+
+    @Test func offForgetsPicturesWaitingForOriginal() async {
+        let (player, _) = await filmPlayer(source: filmWithPictureSubtitles)
+
+        player.showSubtitles(false)
+        player.chooseOriginalSubtitles()
+
+        #expect(!player.showsSubtitles)
+    }
+
+    @Test func moreOpensQualityWithAutoChosen() async throws {
+        let (player, streams) = await filmPlayer()
+        player.openMenu("more")
+        #expect(try item("quality", in: player.openMenu).detail == "Auto")
+
+        player.choose(try item("quality", in: player.openMenu))
+        #expect(player.openMenu?.sections.map(\.header) == ["Quality"])
+        #expect(player.menuFocus == "Auto")
+        player.choose(try item("8 Mbps", in: player.openMenu))
+
+        await waitUntil { engine.loads.count == 2 }
+        #expect(streams.requests.last?.maxBitrate == 8_000_000)
+        #expect(player.openMenu == nil)
+    }
+
+    @Test func keepsItsControlsWhileHeld() async throws {
+        let player = await playingPlayer(controlsTimeout: .milliseconds(30))
+        player.showControls()
+
+        player.holdControls(true)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(player.showsControls)
+
+        player.holdControls(false)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!player.showsControls)
+    }
+
+    @Test func namesQualitiesAsJellyfinsWebClientDoes() {
+        #expect(PlaybackQuality.auto.name == "Auto")
+        #expect(PlaybackQuality.original.name == "Original")
+        #expect(PlaybackQuality.maxBitrate(120_000_000).name == "120 Mbps")
+        #expect(PlaybackQuality.maxBitrate(1_500_000).name == "1.5 Mbps")
+        #expect(PlaybackQuality.maxBitrate(720_000).name == "720 kbps")
+    }
+}
+
+/// A server's streams of `first`: `first` for the first request, then a stream it makes for each
+/// after it, with what the request asked for, unless it fails them.
+@MainActor
+final class Streams {
+    let first: PlaybackSource
+    let failsAfterFirst: Bool
+    private(set) var requests: [PlaybackRequest] = []
+    /// The sources the player had the server stop making.
+    var stopped: [PlaybackSource] = []
+    /// Holds each request after the first until `releaseRequests()`.
+    var holdsRequests = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    init(first: PlaybackSource, failsAfterFirst: Bool) {
+        self.first = first
+        self.failsAfterFirst = failsAfterFirst
+    }
+
+    func releaseRequests() {
+        held.forEach { $0.resume() }
+        held = []
+    }
+
+    func source(for request: PlaybackRequest) async throws -> PlaybackSource {
+        requests.append(request)
+        guard requests.count > 1 else { return first }
+        if holdsRequests { await withCheckedContinuation { held.append($0) } }
+        if failsAfterFirst { throw JellyfinError.unreachable }
+        let subtitles: MediaTrack.ID? = switch request.subtitles {
+        case .track(let id): id
+        case .off, nil: nil
+        }
+        return PlaybackSource(
+            url: URL(string: "https://media.test/master-\(requests.count).m3u8")!,
+            versionID: first.versionID,
+            playSessionID: "session-\(requests.count)",
+            method: request.maxBitrate == nil && request.audioTrack != 7 && subtitles != 1 ? .directPlay : .transcode,
+            audioTracks: first.audioTracks,
+            subtitleTracks: first.subtitleTracks,
+            audioTrack: request.audioTrack,
+            subtitleTrack: subtitles,
+            bitrate: first.bitrate
+        )
     }
 }
 
@@ -615,4 +1394,47 @@ final class SlowReports {
         try? await Task.sleep(for: .milliseconds(sent == 1 ? 50 : 10))
         received.append(report)
     }
+}
+
+/// The system's caption styles, as a test sets them: Classic, Large Text (half as big again) and
+/// Transparent Background, which is chosen.
+final class FakeCaptionStyles: @unchecked Sendable {
+    var chosen: CaptionStyleOption.ID? = "transparent"
+
+    var styles: CaptionStyles {
+        CaptionStyles(
+            options: {
+                [
+                    CaptionStyleOption(id: "classic", name: "Classic"),
+                    CaptionStyleOption(id: "large", name: "Large Text"),
+                    CaptionStyleOption(id: "transparent", name: "Transparent Background"),
+                ]
+            },
+            chosen: { self.chosen },
+            choose: { self.chosen = $0 },
+            appearance: { CaptionStyle(sizeScale: $0 == "large" ? 1.5 : 1) }
+        )
+    }
+}
+
+/// Counts the changes to what shows the time, as a view showing it would see them.
+@MainActor
+final class TimeChanges {
+    private(set) var count = 0
+
+    func watch(_ player: PlayerViewModel) {
+        withObservationTracking {
+            _ = player.elapsedLabel
+            _ = player.remainingLabel
+            _ = player.progress
+            _ = player.playbackProgress
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated { self?.count += 1 }
+        }
+    }
+}
+
+/// What a test's closure was called with, in order.
+final class Recorded<Value>: @unchecked Sendable {
+    var values: [Value] = []
 }

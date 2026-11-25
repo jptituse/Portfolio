@@ -71,4 +71,13 @@ struct AetherPlaybackEngineTests {
         #expect(options.audioShaping == AudioShaping(maxChannels: 2, dialogueGainDB: 6))
         #expect(abs(options.audioDelaySeconds + 0.15) < 1e-9)
     }
+
+    @Test func reducesLoudSoundsKeepingSettingsShaping() {
+        let preferences = PlaybackPreferences(enhancesDialogue: true, downmixesToStereo: true)
+
+        let options = AetherPlaybackEngine.options(for: source, preferences, reducesLoudSounds: true)
+
+        #expect(options.audioShaping == AudioShaping(maxChannels: 2, dialogueGainDB: 6, compressor: .night))
+        #expect(AetherPlaybackEngine.audioShaping(PlaybackPreferences(), reducesLoudSounds: false) == AudioShaping())
+    }
 }

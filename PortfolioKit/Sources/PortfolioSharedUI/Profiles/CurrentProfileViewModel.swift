@@ -75,21 +75,28 @@ public final class CurrentProfileViewModel {
         let now = ContinuousClock.now
         preparedSources = preparedSources.filter { now - $0.value.asked < Self.preparedSourceLifetime }
         guard preparedSources[item.id] == nil else { return }
-        let finding = Task { [client] in try await client.playbackSource(for: item, session: session) }
+        let request = PlaybackDefaults(preferences, item: item).startingRequest
+        let finding = Task { [client] in try await client.playbackSource(for: item, request, session: session) }
         preparedSources[item.id] = PreparedSource(finding: finding, asked: now)
     }
 
-    /// A player for `item`, played from the profile's server as it is, from the beginning or resuming.
+    /// A player for `item`, played from the profile's server, from the beginning or resuming: as it is
+    /// wherever the server will send it so, else as a stream the server makes, and as one for any choice
+    /// of tracks or quality that needs it, the server stopping each stream the player moves on from.
     /// Resuming starts where the server says the user got to when Play is pressed, wherever they
     /// played it, or else where this app last knew. The server hears when it starts, where it is as it
     /// plays and where it stops; a report that fails changes nothing on screen. Once it has stopped,
     /// `userDataUpdates` has the server's word on where the user got to.
     /// Where it plays from was found already if it was prepared; if that failed, it's asked again.
+    /// Auto streams no faster than the profile's Settings say, and it starts in their audio and subtitle
+    /// languages, on Style's Original if the item, or its show, played last with it, which it keeps for
+    /// the item, or for the whole show (`PlaybackDefaults`).
     ///
     /// - Parameter makeEngine: the engine to play it in, of the app's choosing.
     public func makePlayer(for item: MediaItem, from start: PlaybackStart = .beginning, makeEngine: () throws -> any PlaybackEngine) -> PlayerViewModel {
         let session = sessionManager.state.session
         let prepared = takePreparedSource(for: item.id)
+        let defaults = PlaybackDefaults(preferences, item: item)
         // Asked at once, while where it plays from is found, so resuming doesn't wait for it.
         let resumePosition = start == .resuming ? Task { [client, userDataUpdates] in
             guard let session, let userData = try? await client.userData(for: item, session: session) else {
@@ -102,13 +109,18 @@ public final class CurrentProfileViewModel {
             subtitle: PlayerViewModel.subtitle(for: item),
             makeEngine: makeEngine,
             startingAt: { await resumePosition?.value ?? .zero },
-            source: { [client] in
-                if let prepared, let found = try? await prepared.value { return found }
+            source: { [client] request in
+                // Prepared as a player starts.
+                if request == defaults.startingRequest, let prepared, let found = try? await prepared.value { return found }
                 guard let session else { throw JellyfinError.unauthorized }
-                return try await client.playbackSource(for: item, session: session)
+                return try await client.playbackSource(for: item, request, session: session)
             },
             describe: { error in
                 LoadingFailure.message(for: error, server: session?.server.name ?? "The server", activity: "starting \(item.name)")
+            },
+            stopTranscoding: { [client] source in
+                guard let session else { return }
+                try? await client.stopTranscoding(source, session: session)
             },
             reportStarted: { [client] source, position in
                 guard let session else { return }
@@ -125,7 +137,9 @@ public final class CurrentProfileViewModel {
                 if let userData = try? await client.userData(for: item, session: session) {
                     userDataUpdates.update(userData, for: item.id)
                 }
-            }
+            },
+            playbackDefaults: defaults,
+            rememberOriginalSubtitles: { [preferences] in preferences?.setShowsOriginalSubtitles($0, for: item) }
         )
     }
 

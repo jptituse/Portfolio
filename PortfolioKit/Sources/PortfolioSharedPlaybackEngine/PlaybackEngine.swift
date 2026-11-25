@@ -14,8 +14,11 @@ public protocol PlaybackEngine: AnyObject, Observable {
     var duration: Duration { get }
     /// The picture, filling the space it's given.
     var surface: AnyView { get }
+    /// The subtitles showing, drawn where they go over the picture, filling the same space.
+    var subtitles: AnyView { get }
 
-    /// Opens `source`, in place of anything open before, ready to play from `position`.
+    /// Opens `source`, in place of anything open before, ready to play from `position`, on the source's
+    /// `audioTrack` with its `subtitleTrack` showing.
     ///
     /// - Throws: why it couldn't be opened; `CancellationError` if another load or `stop()` took its
     ///   place, or the task was cancelled.
@@ -23,6 +26,15 @@ public protocol PlaybackEngine: AnyObject, Observable {
     func play()
     func pause()
     func seek(to position: Duration) async
+    /// Switches to `track`, one of the open source's audio tracks in the stream, playing on from where
+    /// playback is.
+    func selectAudioTrack(_ track: MediaTrack)
+    /// Shows `track`, one of the open source's subtitle tracks in the stream or in a file of its own, or
+    /// no subtitles.
+    func selectSubtitleTrack(_ track: MediaTrack?)
+    /// Narrows the audio's range, so loud scenes are quieter and quiet ones louder, from now on and in
+    /// whatever opens next, or stops.
+    func setReducesLoudSounds(_ reduces: Bool)
     /// Ends the session and lets go of the source, its connections and the display mode it set.
     func stop()
 }

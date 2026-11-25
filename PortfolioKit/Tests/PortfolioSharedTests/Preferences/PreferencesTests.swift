@@ -86,6 +86,40 @@ struct ProfilePreferencesTests {
         #expect(!preferences.hidesSpoilers)
     }
 
+    func episode(_ id: String, of show: String) -> MediaItem {
+        MediaItem(id: id, name: id, kind: .episode, episode: EpisodeInfo(seriesID: show))
+    }
+
+    @Test func keepsHowEachMovieOfEachProfilePlayedLast() {
+        let preferences = ProfilePreferences(profile: alex, defaults: defaults)
+        let arrival = MediaItem(id: "arrival", name: "Arrival", kind: .movie)
+        let dune = MediaItem(id: "dune", name: "Dune", kind: .movie)
+        #expect(!preferences.showsOriginalSubtitles(for: arrival))
+
+        preferences.setShowsOriginalSubtitles(true, for: arrival)
+
+        #expect(ProfilePreferences(profile: alex, defaults: defaults).showsOriginalSubtitles(for: arrival))
+        #expect(!preferences.showsOriginalSubtitles(for: dune))
+        #expect(!ProfilePreferences(profile: sam, defaults: defaults).showsOriginalSubtitles(for: arrival))
+        preferences.setShowsOriginalSubtitles(false, for: arrival)
+        #expect(!preferences.showsOriginalSubtitles(for: arrival))
+    }
+
+    @Test func changingAnEpisodeChangesEveryEpisodeOfItsShow() {
+        let preferences = ProfilePreferences(profile: alex, defaults: defaults)
+        let pilot = episode("pilot", of: "severance")
+        let second = episode("second", of: "severance")
+        let other = episode("other", of: "andor")
+
+        preferences.setShowsOriginalSubtitles(true, for: pilot)
+        // The show's other episodes too, but not another show's.
+        #expect(preferences.showsOriginalSubtitles(for: second))
+        #expect(!preferences.showsOriginalSubtitles(for: other))
+
+        preferences.setShowsOriginalSubtitles(false, for: second)
+        #expect(!preferences.showsOriginalSubtitles(for: pilot))
+    }
+
     @Test func remembersEachSettingAfterARelaunch() {
         let preferences = ProfilePreferences(profile: alex, defaults: defaults)
         preferences.hero = .collection(id: "pixar", name: "Pixar")
