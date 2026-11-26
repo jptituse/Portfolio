@@ -17,9 +17,12 @@ public final class AetherPlaybackEngine: PlaybackEngine {
 
     @ObservationIgnored private let engine: AetherEngine
     @ObservationIgnored private var mirroring: [Task<Void, Never>] = []
+    @ObservationIgnored private let preferences: PlaybackPreferences
 
+    /// - Parameter preferences: how this device plays, as Settings has it when the player opens.
     /// - Throws: if AetherEngine can't start, such as when its audio session is unavailable.
-    public init() throws {
+    public init(preferences: PlaybackPreferences = PlaybackPreferences()) throws {
+        self.preferences = preferences
         engine = try AetherEngine()
         mirroring = [
             Task { [weak self, engine] in
@@ -34,6 +37,9 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         ]
     }
 
+    /// The engine's name and version, for About.
+    public nonisolated static let about = (name: "AetherEngine", version: AetherEngine.version)
+
     isolated deinit {
         mirroring.forEach { $0.cancel() }
     }
@@ -46,9 +52,54 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         try await engine.load(
             url: source.url,
             startPosition: position > .zero ? position.inSeconds : nil,
-            options: LoadOptions(httpHeaders: source.httpHeaders)
+            options: Self.options(for: source, preferences)
         )
     }
+
+    /// How AetherEngine opens `source` as `preferences` say.
+    ///
+    /// - Dolby Vision FEL composes Profile 7 from both its layers (`preferDualLayerDolbyVision`) on the
+    ///   engine's own decoder, or with AVPlayer decoding the base layer. Without it, Profile 7 plays as
+    ///   single-layer 8.1 without its enhancement layer.
+    /// - Object audio renders TrueHD Atmos and DTS:X for the speakers, which tvOS sends to the receiver
+    ///   as Dolby MAT. Without it, it becomes lossy E-AC-3 5.1 without heights.
+    /// - Enhancing dialogue and mixing down to stereo shape decoded audio, so audio that would pass
+    ///   through as it is (Atmos, lossless) is decoded, and object audio isn't rendered meanwhile.
+    nonisolated static func options(for source: PlaybackSource, _ preferences: PlaybackPreferences) -> LoadOptions {
+        var options = LoadOptions(httpHeaders: source.httpHeaders)
+        switch preferences.dolbyVisionFEL {
+        case .off:
+            options.preferDualLayerDolbyVision = false
+        case .full:
+            options.preferDualLayerDolbyVision = true
+            options.dualLayerRoute = .softwareHost
+        case .fullThroughAVPlayer:
+            options.preferDualLayerDolbyVision = true
+            options.dualLayerRoute = .avPlayerOutput
+        }
+        options.objectAudioRendering = preferences.objectAudioLayout.map { .render(speakerLayout(for: $0)) } ?? .off
+        options.upscalesLowResolutionVideo = preferences.upscalesLowResolution
+        options.audioShaping = AudioShaping(
+            maxChannels: preferences.downmixesToStereo ? 2 : nil,
+            dialogueGainDB: preferences.enhancesDialogue ? dialogueGain : 0
+        )
+        options.audioDelaySeconds = preferences.audioDelay.inSeconds
+        return options
+    }
+
+    nonisolated static func speakerLayout(for layout: SpeakerLayout) -> SpatialSpeakerLayout {
+        switch layout {
+        case .l512: .l512
+        case .l514: .l514
+        case .l712: .l712
+        case .l714: .l714
+        case .l916: .l916
+        }
+    }
+
+    /// How much Enhance Dialogue raises the dialogue, in dB: half the most the engine allows, past which
+    /// a centre channel starts to sound like a separate speaker.
+    nonisolated static let dialogueGain = AudioShaping.maxDialogueGainDB / 2
 
     public func play() {
         engine.play()

@@ -6,6 +6,9 @@ import PortfolioSharedJellyfinClient
 /// without, on the welcome screen. Adding a server goes from the welcome screen to the server's
 /// address, who's signing in, and their password. Someone not on the profile picker picks their
 /// server first, or adds it.
+///
+/// Settings starts the same steps to add a server or an account (`adding(_:client:sessionManager:)`),
+/// which save the account without opening it, so the open profile stays open.
 @MainActor
 @Observable
 public final class ProfilesViewModel {
@@ -42,29 +45,75 @@ public final class ProfilesViewModel {
         }
     }
 
+    /// The first screen, under the steps.
+    public enum First {
+        case picker(ProfilePickerViewModel)
+        case welcome
+        case servers(ServerPickerViewModel)
+    }
+
+    /// What Settings adds.
+    public enum Addition {
+        /// A server, from the welcome screen.
+        case server
+        /// An account, on a server already added or a new one, from picking the server.
+        case account
+    }
+
     /// The steps on top of the first screen. Going back pops them.
     public var path: [Step] = []
-    /// The profile picker, once a server has been added. Without one, the welcome screen comes first.
-    public let picker: ProfilePickerViewModel?
+    public private(set) var first: First = .welcome
 
+    /// Called once an account added from Settings is saved.
+    @ObservationIgnored public var onAdded: () -> Void = {}
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let sessionManager: SessionManager
+    /// Whether signing in opens the profile, as it does before anyone is signed in, or only saves it.
+    @ObservationIgnored private let opensProfile: Bool
 
     init(client: JellyfinServerClient, sessionManager: SessionManager) {
         self.client = client
         self.sessionManager = sessionManager
-        picker = sessionManager.servers.isEmpty ? nil : ProfilePickerViewModel(client: client, sessionManager: sessionManager)
-        picker?.onSomeoneElse = { [weak self] in self?.pickServer() }
-        picker?.onSignIn = { [weak self] server, user in self?.signIn(to: server, as: user) }
+        opensProfile = true
+        if !sessionManager.servers.isEmpty {
+            let picker = ProfilePickerViewModel(client: client, sessionManager: sessionManager)
+            picker.onSomeoneElse = { [weak self] in self?.pickServer() }
+            picker.onSignIn = { [weak self] server, user in self?.signIn(to: server, as: user) }
+            first = .picker(picker)
+        }
+    }
+
+    private init(adding addition: Addition, client: JellyfinServerClient, sessionManager: SessionManager) {
+        self.client = client
+        self.sessionManager = sessionManager
+        opensProfile = false
+        if addition == .account {
+            first = .servers(makeServerPicker())
+        }
+    }
+
+    /// The steps for adding a server or an account from Settings. The account is saved without opening
+    /// it, then `onAdded` is called.
+    public static func adding(_ addition: Addition, client: JellyfinServerClient, sessionManager: SessionManager) -> ProfilesViewModel {
+        ProfilesViewModel(adding: addition, client: client, sessionManager: sessionManager)
+    }
+
+    /// The profile picker, once a server has been added. Without one, the welcome screen comes first.
+    public var picker: ProfilePickerViewModel? {
+        if case .picker(let picker) = first { picker } else { nil }
     }
 
     /// Someone not on the profile picker: they're on a server already added, where they type their
     /// username (anyone it lists is on the picker already), or on another one to add.
     private func pickServer() {
+        path.append(.servers(makeServerPicker()))
+    }
+
+    private func makeServerPicker() -> ServerPickerViewModel {
         let step = ServerPickerViewModel(client: client, sessionManager: sessionManager)
         step.onPick = { [weak self] server in self?.signIn(to: server, as: nil) }
         step.onAddServer = { [weak self] in self?.path.append(.welcome) }
-        path.append(.servers(step))
+        return step
     }
 
     /// From the welcome screen: add a server by its address.
@@ -86,7 +135,9 @@ public final class ProfilesViewModel {
     }
 
     private func signIn(to server: ServerInfo, as user: User?) {
-        path.append(.signIn(SignInViewModel(server: server, user: user, client: client, sessionManager: sessionManager)))
+        let step = SignInViewModel(server: server, user: user, client: client, sessionManager: sessionManager, opensProfile: opensProfile)
+        step.onSignedIn = { [weak self] in self?.onAdded() }
+        path.append(.signIn(step))
     }
 
     #if DEBUG

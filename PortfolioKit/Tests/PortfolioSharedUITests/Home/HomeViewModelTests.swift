@@ -55,6 +55,41 @@ struct HomeViewModelTests {
         #expect(!home.isLoading)
     }
 
+    @Test func goesThroughTheCollectionTheProfileChoseInTheBanner() async throws {
+        let pixar = MockJellyfinServer.Item(name: "Pixar", type: "BoxSet")
+        var up = movie("Up")
+        up.libraryID = pixar.id
+        var coco = movie("Coco")
+        coco.libraryID = pixar.id
+        let mock = MockJellyfinServer(libraries: [movies], items: [movie("Arrival"), up, coco, pixar])
+        let session = try await signIn(to: mock)
+        let preferences = ProfilePreferences(profile: ProfileID(serverID: session.server.id, userID: session.user.id), defaults: .forTesting())
+        preferences.hero = .collection(id: pixar.id, name: "Pixar")
+        let home = HomeViewModel(client: client, session: session, preferences: preferences)
+
+        await home.load()
+
+        #expect(home.bannerItems.map(\.name) == ["Up", "Coco"])
+        #expect(bannerRequests(to: mock) == 0)
+    }
+
+    @Test func followsAChangeOfHeroWhenItLoadsAgain() async throws {
+        let date = MockJellyfinServer.Item(name: "Date Night", type: "Playlist")
+        var arrival = movie("Arrival")
+        arrival.libraryID = date.id
+        let mock = MockJellyfinServer(libraries: [movies], items: [movie("Dune"), arrival, date])
+        let session = try await signIn(to: mock)
+        let preferences = ProfilePreferences(profile: ProfileID(serverID: session.server.id, userID: session.user.id), defaults: .forTesting())
+        let home = HomeViewModel(client: client, session: session, preferences: preferences)
+        await home.load()
+        #expect(home.bannerItems.first?.name == "Dune")
+
+        preferences.hero = .playlist(id: date.id, name: "Date Night")
+        await home.load()
+
+        #expect(home.bannerItems.map(\.name) == ["Arrival"])
+    }
+
     // MARK: Continue Watching
 
     @Test func continuesWithWhatsPartlyWatchedThenTheNextEpisodes() async throws {

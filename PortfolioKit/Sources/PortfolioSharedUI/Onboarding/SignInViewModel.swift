@@ -16,17 +16,24 @@ public final class SignInViewModel {
     public private(set) var errorMessage: String?
     private var branding = ServerBranding()
 
+    /// Called once the account is signed in and saved.
+    @ObservationIgnored var onSignedIn: () -> Void = {}
     @ObservationIgnored private let server: ServerInfo
     @ObservationIgnored private let user: User?
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let sessionManager: SessionManager
+    @ObservationIgnored private let opensProfile: Bool
 
-    /// - Parameter user: the person signing in, or nil if they'll type their username.
-    init(server: ServerInfo, user: User?, client: JellyfinServerClient, sessionManager: SessionManager) {
+    /// - Parameters:
+    ///   - user: the person signing in, or nil if they'll type their username.
+    ///   - opensProfile: whether signing in opens the profile, or only saves it, as adding an account
+    ///     from Settings does.
+    init(server: ServerInfo, user: User?, client: JellyfinServerClient, sessionManager: SessionManager, opensProfile: Bool = true) {
         self.server = server
         self.user = user
         self.client = client
         self.sessionManager = sessionManager
+        self.opensProfile = opensProfile
         username = user?.name ?? ""
     }
 
@@ -83,7 +90,12 @@ public final class SignInViewModel {
         defer { isSigningIn = false }
         do {
             let session = try await client.signIn(to: server, username: user?.name ?? trimmedUsername, password: password)
-            try sessionManager.signIn(session)
+            if opensProfile {
+                try sessionManager.signIn(session)
+            } else {
+                try sessionManager.add(session)
+            }
+            onSignedIn()
         } catch is CancellationError {
             return
         } catch JellyfinError.unauthorized {

@@ -13,6 +13,8 @@ final class MediaDetailInfoViewModel {
     /// episode's starts with its number and name: "S1E5 · The Bridge · 2024 · 52m".
     private(set) var metadata: String?
     private(set) var overview: String?
+    /// Whether it's an episode the profile hasn't watched, whose overview gives away what happens in it.
+    private(set) var isUnwatchedEpisode = false
 
     init(item: MediaItem) {
         update(with: item)
@@ -24,6 +26,12 @@ final class MediaDetailInfoViewModel {
         title = item.episode?.seriesName ?? item.name
         metadata = Self.metadata(for: item)
         overview = item.overview
+        isUnwatchedEpisode = item.episode != nil && !item.userData.isPlayed
+    }
+
+    /// The overview to show, none for an episode not watched yet while `hidingSpoilers`.
+    func overview(hidingSpoilers: Bool) -> String? {
+        hidingSpoilers && isUnwatchedEpisode ? nil : overview
     }
 
     private static func metadata(for item: MediaItem) -> String? {

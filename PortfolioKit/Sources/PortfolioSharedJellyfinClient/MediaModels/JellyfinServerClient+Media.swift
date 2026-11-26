@@ -28,6 +28,49 @@ extension JellyfinServerClient {
         return items.compactMap(MediaItem.init)
     }
 
+    /// The items in a collection or playlist, in its order.
+    ///
+    /// - Throws: as `recentlyAdded(for:in:limit:)`.
+    public func items(in parentID: String, for session: UserSession, limit: Int = 24) async throws -> [MediaItem] {
+        var parameters = Paths.GetItemsParameters()
+        parameters.userID = session.user.id
+        parameters.parentID = parentID
+        parameters.limit = limit
+        parameters.fields = Self.cardFields
+        parameters.enableImages = true
+        parameters.imageTypeLimit = 1
+        parameters.enableImageTypes = Self.cardImageTypes
+        parameters.enableUserData = true
+        let result = try await perform(.request) {
+            try await makeClient(url: session.server.url, accessToken: session.accessToken)
+                .send(Paths.getItems(parameters: parameters)).value
+        }
+        return (result.items ?? []).compactMap(MediaItem.init)
+    }
+
+    /// The user's collections, or their playlists, by name.
+    ///
+    /// - Throws: as `recentlyAdded(for:in:limit:)`.
+    public func groupings(_ kind: Grouping, for session: UserSession) async throws -> [MediaItem] {
+        var parameters = Paths.GetItemsParameters()
+        parameters.userID = session.user.id
+        parameters.includeItemTypes = [kind == .collections ? .boxSet : .playlist]
+        parameters.isRecursive = true
+        parameters.sortBy = [.sortName]
+        parameters.sortOrder = [.ascending]
+        let result = try await perform(.request) {
+            try await makeClient(url: session.server.url, accessToken: session.accessToken)
+                .send(Paths.getItems(parameters: parameters)).value
+        }
+        return (result.items ?? []).compactMap(MediaItem.init)
+    }
+
+    /// Items a user groups others in.
+    public enum Grouping: Sendable {
+        case collections
+        case playlists
+    }
+
     /// The videos the user stopped partway through, most recently watched first.
     ///
     /// - Throws: as `recentlyAdded(for:in:limit:)`.

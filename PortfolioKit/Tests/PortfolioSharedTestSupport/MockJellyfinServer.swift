@@ -16,6 +16,9 @@ public final class MockJellyfinServer: Sendable {
         public var isHidden: Bool
         /// The account's picture, if it has one.
         public var imageTag: String?
+        /// The languages it prefers to play audio and subtitles in, by ISO 639-2 code.
+        public var audioLanguage: String?
+        public var subtitleLanguage: String?
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(name: String, password: String, isHidden: Bool = false, imageTag: String? = nil) {
@@ -129,6 +132,15 @@ public final class MockJellyfinServer: Sendable {
     private let playbackInfoBodies = Mutex<[Data]>([])
     private let reports = Mutex<[PlaybackReport]>([])
     private let itemStore: Mutex<[Item]>
+    /// Names and picture tags accounts were given, by account ID: a removed picture's tag is nil.
+    private let renamed = Mutex<[String: String]>([:])
+    private let pictures = Mutex<[String: String?]>([:])
+    /// The pictures sent, as the server received them: base64-encoded.
+    public var uploadedPictures: [Data] { uploads.withLock { $0 } }
+    private let uploads = Mutex<[Data]>([])
+    /// The users sent to be saved, as JSON.
+    public var savedUsers: [Data] { userUpdates.withLock { $0 } }
+    private let userUpdates = Mutex<[Data]>([])
     /// Access tokens the server currently accepts, and whose they are.
     private let sessions = Mutex<[String: Account]>([:])
 
@@ -253,6 +265,34 @@ public final class MockJellyfinServer: Sendable {
         case ("GET", "/Users/Me"):
             guard let account = account(for: request) else { return Response(status: 401) }
             return Response(status: 200, json: userJSON(account))
+        case ("POST", "/Users"):
+            guard let account = account(for: request) else { return Response(status: 401) }
+            guard let body = request.bodyData, let user = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                let name = user["Name"] as? String else {
+                return Response(status: 400)
+            }
+            renamed.withLock { $0[account.id] = name }
+            userUpdates.withLock { $0.append(body) }
+            return Response(status: 204)
+        case ("POST", "/UserImage"):
+            guard let account = account(for: request) else { return Response(status: 401) }
+            uploads.withLock { $0.append(request.bodyData ?? Data()) }
+            pictures.withLock { $0[account.id] = UUID().uuidString.prefix(8).lowercased() }
+            return Response(status: 204)
+        case ("DELETE", "/UserImage"):
+            guard let account = account(for: request) else { return Response(status: 401) }
+            pictures.withLock { $0[account.id] = .some(nil) }
+            return Response(status: 204)
+        case ("GET", "/Localization/Cultures"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            return Response(status: 200, json: Self.cultures)
+        case ("GET", "/System/Ping"):
+            return Response(status: 200, html: productName)
+        case ("GET", "/Playback/BitrateTest"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems
+            let size = query?.first { $0.name == "size" }?.value.flatMap(Int.init) ?? 102_400
+            return Response(status: 200, image: Data(count: size))
         case ("POST", "/Sessions/Logout"):
             guard let token = token(in: request), account(for: request) != nil else { return Response(status: 401) }
             sessions.withLock { _ = $0.removeValue(forKey: token) }
@@ -448,15 +488,29 @@ public final class MockJellyfinServer: Sendable {
 
     private func userJSON(_ account: Account) -> [String: Any] {
         var json: [String: Any] = [
-            "Name": account.name,
+            "Name": renamed.withLock { $0[account.id] } ?? account.name,
             "ServerId": id,
             "Id": account.id,
             "HasPassword": !account.password.isEmpty,
             "HasConfiguredPassword": !account.password.isEmpty,
         ]
-        json["PrimaryImageTag"] = account.imageTag
-        json["Configuration"] = ["LatestItemsExcludes": librariesLeftOutOfLatest]
+        json["PrimaryImageTag"] = pictures.withLock { $0[account.id] } ?? account.imageTag
+        var configuration: [String: Any] = ["LatestItemsExcludes": librariesLeftOutOfLatest]
+        configuration["AudioLanguagePreference"] = account.audioLanguage
+        configuration["SubtitleLanguagePreference"] = account.subtitleLanguage
+        json["Configuration"] = configuration
         return json
+    }
+
+    /// The cultures the server knows, as Jellyfin lists them: unsorted, and some languages more than
+    /// once, under another name.
+    static var cultures: [[String: Any]] {
+        [
+            ["Name": "French", "DisplayName": "French", "TwoLetterISOLanguageName": "fr", "ThreeLetterISOLanguageName": "fre"],
+            ["Name": "English", "DisplayName": "English", "TwoLetterISOLanguageName": "en", "ThreeLetterISOLanguageName": "eng"],
+            ["Name": "English (United Kingdom)", "DisplayName": "English (United Kingdom)", "TwoLetterISOLanguageName": "en", "ThreeLetterISOLanguageName": "eng"],
+            ["Name": "Spanish", "DisplayName": "Spanish", "TwoLetterISOLanguageName": "es", "ThreeLetterISOLanguageName": "spa"],
+        ]
     }
 
     /// The account behind the request's access token, if the server still accepts it.

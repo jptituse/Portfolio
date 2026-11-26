@@ -14,13 +14,16 @@ public struct RootView<Profiles: View, Main: View>: View {
     ///   - profiles: the views for picking a profile or adding a server, given a fresh view model each
     ///     time no profile is open.
     ///   - main: the main UI, given the open profile, to show who it is and switch profiles.
+    ///   - preferences: the settings for everyone on this device, such as whether launch opens on the
+    ///     profile picker.
     public init(
         sessionManager: SessionManager,
         client: JellyfinServerClient,
+        preferences: DevicePreferences,
         @ViewBuilder profiles: @escaping (ProfilesViewModel) -> Profiles,
         @ViewBuilder main: @escaping (CurrentProfileViewModel) -> Main
     ) {
-        _viewModel = State(initialValue: RootViewModel(sessionManager: sessionManager, client: client))
+        _viewModel = State(initialValue: RootViewModel(sessionManager: sessionManager, client: client, preferences: preferences))
         self.profiles = profiles
         self.main = main
     }
@@ -31,9 +34,6 @@ public struct RootView<Profiles: View, Main: View>: View {
         } main: {
             main(viewModel.makeCurrentProfileViewModel())
         }
-        // FIXME: The debug sign-out and server removal in Settings still read the session manager from
-        // the environment. Pass it to a view model instead once settings (#18) replaces them.
-        .environment(viewModel.sessionManager)
-        .task { viewModel.restoreSession() }
+        .task { await viewModel.restoreSession() }
     }
 }

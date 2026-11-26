@@ -1,7 +1,7 @@
 import Observation
 
 /// Owns the servers added on this device and who's signed in to them: loads them at launch, opens a
-/// profile, saves a new sign-in, signs out, and removes them all. `RootView` observes `state`, and the profile picker
+/// profile, saves a new sign-in, signs accounts out, changes a server's address, and removes servers. `RootView` observes `state`, and the profile picker
 /// observes `servers` and starts on `lastOpenedProfile`.
 @MainActor
 @Observable
@@ -23,9 +23,22 @@ public final class SessionManager {
     /// Loads the saved servers at launch. No profile is open until one is picked. Servers that can't
     /// be read leave none, so the app starts as if freshly installed.
     public func restore() {
+        load()
+        state = .choosingProfile
+    }
+
+    /// Loads the saved servers at launch, then opens the profile opened last, as `open(_:on:)` does,
+    /// while it's still signed in. Otherwise, or if the server no longer accepts its session, someone
+    /// picks a profile. It's still restoring meanwhile.
+    public func restoreOpeningLastProfile() async {
+        load()
+        if let last = lastOpenedProfile, await open(last.userID, on: last.serverID) { return }
+        state = .choosingProfile
+    }
+
+    private func load() {
         servers = (try? store.load()) ?? []
         lastOpenedProfile = try? store.loadLastOpenedProfile()
-        state = .choosingProfile
     }
 
     /// Opens a saved profile, checking its session with the server first.
@@ -60,6 +73,15 @@ public final class SessionManager {
     /// - Throws: the storage error if the session couldn't be saved. Nothing changes then, because a
     ///   session that isn't saved would be lost at the next launch.
     public func signIn(_ session: UserSession) throws {
+        try add(session)
+        opened(session)
+    }
+
+    /// Saves a session that onboarding just created, adding its server if it's new, without opening it:
+    /// an account added from Settings joins the profile picker, and the open profile stays open.
+    ///
+    /// - Throws: as `signIn(_:)`.
+    public func add(_ session: UserSession) throws {
         var servers = servers
         if let index = servers.firstIndex(where: { $0.id == session.server.id }) {
             // The server may have been reached at a new address.
@@ -73,7 +95,6 @@ public final class SessionManager {
         }
         try store.save(servers)
         self.servers = servers
-        opened(session)
     }
 
     /// Makes `session` the open profile, and remembers it as the one opened last. Remembering is best
@@ -83,6 +104,15 @@ public final class SessionManager {
         lastOpenedProfile = profile
         try? store.saveLastOpenedProfile(profile)
         state = .signedIn(session)
+    }
+
+    /// Takes a user as their server knows them now, such as after they were renamed or given a new
+    /// picture, here and in the open profile if it's theirs.
+    public func updateUser(_ user: User, on serverID: MediaServer.ID) {
+        update(serverID) { $0.remember(user) }
+        if let session = state.session, session.server.id == serverID, session.user.id == user.id {
+            state = .signedIn(UserSession(server: session.server, user: user, accessToken: session.accessToken))
+        }
     }
 
     /// Takes the users a saved server lists now, keeping anyone else this device knows.
@@ -104,10 +134,60 @@ public final class SessionManager {
     /// can then be revoked from its dashboard.
     public func signOut() async {
         if let session = state.session {
-            try? await authority.endSession(session)
-            update(session.server.id) { $0.accessTokens[session.user.id] = nil }
+            await signOut(session.user.id, on: session.server.id)
         }
         state = .choosingProfile
+    }
+
+    /// Ends a signed-in account's session on its server, then forgets its token, as `signOut()` does
+    /// for the open profile. It stays on the profile picker, signed out. Signing out the open profile
+    /// closes it.
+    public func signOut(_ userID: User.ID, on serverID: MediaServer.ID) async {
+        guard let session = servers.first(where: { $0.id == serverID })?.session(for: userID) else { return }
+        let wasOpen = state.session.map { $0.user.id == userID && $0.server.id == serverID } ?? false
+        update(serverID) { $0.accessTokens[userID] = nil }
+        if wasOpen { state = .choosingProfile }
+        try? await authority.endSession(session)
+    }
+
+    /// Forgets a server added on this device, with its profiles, as `removeAllServers()` does for every
+    /// one: the open profile closes if it's on it, and with no servers left the app starts over as if
+    /// freshly installed. Each of its signed-in sessions is then ended, best effort.
+    ///
+    /// - Throws: the storage error if it couldn't be removed. Nothing changes then.
+    public func removeServer(_ serverID: MediaServer.ID) async throws {
+        guard let removed = servers.first(where: { $0.id == serverID }) else { return }
+        let remaining = servers.filter { $0.id != serverID }
+        if remaining.isEmpty {
+            try store.removeAll()
+        } else {
+            try store.save(remaining)
+        }
+        servers = remaining
+        if lastOpenedProfile?.serverID == serverID {
+            lastOpenedProfile = nil
+            try? store.removeLastOpenedProfile()
+        }
+        if state.session?.server.id == serverID { state = .choosingProfile }
+        for session in removed.users.compactMap({ removed.session(for: $0.id) }) {
+            try? await authority.endSession(session)
+        }
+    }
+
+    /// Takes the address a saved server is reached at now. Its accounts stay signed in, the open
+    /// profile included, which reaches it there from now on.
+    ///
+    /// - Parameter server: the server as found at its new address. It must be the same server.
+    /// - Throws: the storage error if it couldn't be saved. Nothing changes then.
+    public func updateAddress(of server: ServerInfo) throws {
+        guard let index = servers.firstIndex(where: { $0.id == server.id }) else { return }
+        var servers = servers
+        servers[index].server = server
+        try store.save(servers)
+        self.servers = servers
+        if let session = state.session, session.server.id == server.id {
+            state = .signedIn(UserSession(server: server, user: session.user, accessToken: session.accessToken))
+        }
     }
 
     /// Forgets every server added on this device, with their profiles and the profile opened last, so

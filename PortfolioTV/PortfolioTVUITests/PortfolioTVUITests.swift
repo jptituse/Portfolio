@@ -15,8 +15,10 @@ final class AppNavigationUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        // A Keychain service of its own, so every run starts signed out.
+        // A Keychain service and settings of its own, so every run starts signed out, with Settings as
+        // they come.
         app.launchEnvironment["PORTFOLIO_KEYCHAIN_SERVICE"] = "ui-tests-\(UUID().uuidString)"
+        app.launchEnvironment["PORTFOLIO_DEFAULTS_SUITE"] = "ui-tests-\(UUID().uuidString)"
         app.launch()
     }
 
@@ -35,13 +37,12 @@ final class AppNavigationUITests: XCTestCase {
     func testRemovingAllServersStartsOver() throws {
         signInWithSampleSession()
         goToTab("Settings")
-        focus(app.buttons["Remove All Servers (Debug)"], moving: .right, orElse: .up)
-        press(.select)
+        openSettings("Servers")
+        openSettings("Remove All Servers")
 
-        // The confirmation's button shows up twice, nested in itself.
-        let confirm = app.sheets.buttons["Remove All Servers"].firstMatch
+        let confirm = app.alerts.buttons["Remove All Servers"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Removing should ask first")
-        focus(confirm, moving: .up)
+        focus(confirm, moving: .up, orElse: .down)
         press(.select)
 
         XCTAssertTrue(app.buttons["Sign In on This TV"].waitForExistence(timeout: 10), "The app should start over")
@@ -62,6 +63,60 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(waitForFocus(sampleProfile))
         press(.select)
         XCTAssertTrue(homeRetry.waitForExistence(timeout: 10), "The profile didn't open")
+    }
+
+    @MainActor
+    func testSettingsOpensAMenuAndMenuGoesBackToTheRowItOpenedFrom() throws {
+        signInWithSampleSession()
+        goToTab("Settings")
+
+        openSettings("Video")
+        XCTAssertTrue(waitForFocus(settingsRow("Dolby Vision FEL")), "Focus didn't land on the menu's first row")
+        XCTAssertTrue(app.staticTexts["Video"].exists, "The title didn't change")
+
+        press(.menu)
+        XCTAssertTrue(waitForFocus(settingsRow("Video")), "Menu didn't go back to the row the menu opened from")
+        XCTAssertFalse(settingsRow("Dolby Vision FEL").exists)
+    }
+
+    @MainActor
+    func testSettingsRemembersAChoiceAfterARelaunch() throws {
+        signInWithSampleSession()
+        goToTab("Settings")
+        openSettings("Video")
+        XCTAssertTrue(settingsRow("Dolby Vision FEL", shows: "Off"), "FEL should start off")
+
+        openSettings("Dolby Vision FEL")
+        XCTAssertTrue(waitForFocus(settingsRow("Off")), "Focus didn't start on the choice made")
+        openSettings("Full")
+        XCTAssertTrue(waitForFocus(settingsRow("Dolby Vision FEL")), "Choosing didn't go back")
+        XCTAssertTrue(settingsRow("Dolby Vision FEL", shows: "Full"), "The choice didn't show")
+
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForFocus(sampleProfile, timeout: 10), "A relaunch should open on the profile picker")
+        press(.select)
+        XCTAssertTrue(homeRetry.waitForExistence(timeout: 10), "The profile didn't open")
+        goToTab("Settings")
+        openSettings("Video")
+        XCTAssertTrue(settingsRow("Dolby Vision FEL").waitForExistence(timeout: 5))
+        XCTAssertTrue(settingsRow("Dolby Vision FEL", shows: "Full"), "The choice wasn't remembered")
+    }
+
+    @MainActor
+    func testTurningOffTheProfilePickerOpensTheLastProfileAtLaunch() throws {
+        signInWithSampleSession()
+        goToTab("Settings")
+        openSettings("Appearance")
+        focus(settingsRow("Profile Picker on Launch"), moving: .down, orElse: .up)
+        press(.select)
+        XCTAssertTrue(settingsRow("Profile Picker on Launch", shows: "Off"), "The setting didn't turn off")
+
+        app.terminate()
+        app.launch()
+
+        XCTAssertTrue(homeRetry.waitForExistence(timeout: 10), "The profile opened last didn't open")
+        XCTAssertFalse(sampleProfile.exists, "It opened on the profile picker")
     }
 
     @MainActor
@@ -296,7 +351,7 @@ final class AppNavigationUITests: XCTestCase {
     func testEveryTabGoesFromPosterToPreviewToFullDetailAndBack() throws {
         signInWithSampleSession()
 
-        for tab in ["Search", "Settings"] {
+        for tab in ["Search"] {
             goToTab(tab)
             openCarousel()
 
@@ -413,10 +468,37 @@ final class AppNavigationUITests: XCTestCase {
         app.buttons["Preview User"]
     }
 
-    /// Signs out with the debug button in Settings, back to the profile picker.
+    /// Signs the sample profile out in Settings, back to the profile picker. It's the only account on
+    /// its server, so Settings offers to remove the server too; it doesn't.
     private func signOut() {
         goToTab("Settings")
-        focus(app.buttons["Sign Out (Debug)"], moving: .right, orElse: .up)
+        openSettings("Accounts & Profiles")
+        // The account, listed after the profile.
+        focus(settingsRow("Preview User", index: 1), moving: .down, orElse: .up)
+        press(.select)
+        openSettings("Sign Out")
+        let signOutOnly = app.alerts.buttons["Sign Out Only"].firstMatch
+        XCTAssertTrue(signOutOnly.waitForExistence(timeout: 5), "Signing out should ask first")
+        focus(signOutOnly, moving: .down, orElse: .up)
+        press(.select)
+    }
+
+    /// A row of the Settings menu showing, by its title: the list's cell, which is what takes focus,
+    /// labeled with the row's title, then its value. Asking for the cell around the row's button
+    /// instead (`containing`) took minutes.
+    private func settingsRow(_ title: String, index: Int = 0) -> XCUIElement {
+        app.cells.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, "\(title), ")).element(boundBy: index)
+    }
+
+    /// Whether a Settings row shows `value`.
+    private func settingsRow(_ title: String, shows value: String) -> Bool {
+        settingsRow(title).label == "\(title), \(value)"
+    }
+
+    /// Moves focus to a Settings row, by its title, and selects it, then lets the next menu arrive. Right
+    /// first, out of the sidebar, where focus stays as a section opens.
+    private func openSettings(_ title: String) {
+        focus(settingsRow(title), moving: .right, orElse: .down, .up)
         press(.select)
     }
 
@@ -478,7 +560,6 @@ final class AppNavigationUITests: XCTestCase {
         // The sample session's server doesn't exist, so Home says so.
         "Home": "Couldn't reach Preview Server. Check that it's still running, and try again.",
         "Search": "Search for movies, shows, episodes and people.",
-        "Settings": "Your server, account and playback settings will appear here.",
     ]
 
     /// Opens the sidebar (Menu from a tab's root brings focus back to it), moves to `title` and selects it.
@@ -489,8 +570,9 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(sidebarHasFocus(), "Couldn't bring focus to the sidebar")
         focus(sidebarTab(title), moving: .down, orElse: .up)
         press(.select)
-        let message = app.staticTexts[tabMessages[title] ?? title]
-        XCTAssertTrue(message.waitForExistence(timeout: 5), "\(title) didn't open. Hierarchy:\n\(app.debugDescription)")
+        // Settings' first menu, else the message only that tab's view shows.
+        let shown = title == "Settings" ? settingsRow("Appearance") : app.staticTexts[tabMessages[title] ?? title]
+        XCTAssertTrue(shown.waitForExistence(timeout: 5), "\(title) didn't open. Hierarchy:\n\(app.debugDescription)")
     }
 
     private func sidebarHasFocus() -> Bool {

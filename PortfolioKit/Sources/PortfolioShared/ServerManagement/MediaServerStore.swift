@@ -39,6 +39,10 @@ public struct MediaServerStore: Sendable {
         try storage.set(try JSONEncoder().encode(profile), forKey: Self.lastOpenedKey)
     }
 
+    public func removeLastOpenedProfile() throws {
+        try storage.removeData(forKey: Self.lastOpenedKey)
+    }
+
     /// Removes everything saved. The servers go last, so if removing fails partway, they're still
     /// there to try again.
     public func removeAll() throws {

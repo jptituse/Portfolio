@@ -57,10 +57,30 @@ extension SessionManager {
     }
 }
 
+extension DevicePreferences {
+    /// Settings for previews, kept apart from the app's own.
+    public static func preview() -> DevicePreferences {
+        DevicePreferences(defaults: UserDefaults(suiteName: "preview") ?? .standard)
+    }
+}
+
 extension CurrentProfileViewModel {
     /// For previews of the main UI. No profile is open, so there's nobody to show.
     public static func preview() -> CurrentProfileViewModel {
-        CurrentProfileViewModel(client: .preview, sessionManager: .preview())
+        CurrentProfileViewModel(client: .preview, sessionManager: .preview(), devicePreferences: .preview())
+    }
+}
+
+extension SettingsViewModel {
+    /// For previews of Settings, with this device's servers kept apart from the app's own.
+    public static func preview() -> SettingsViewModel {
+        SettingsViewModel(
+            devicePreferences: .preview(),
+            profilePreferences: ProfilePreferences(profile: ProfileID(serverID: "preview", userID: "preview"), defaults: UserDefaults(suiteName: "preview") ?? .standard),
+            sessionManager: .preview(),
+            client: .preview,
+            engine: ("AetherEngine", "1.0")
+        )
     }
 }
 

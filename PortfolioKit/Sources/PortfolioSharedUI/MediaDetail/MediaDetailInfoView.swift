@@ -4,6 +4,7 @@ import SwiftUI
 /// full-screen card, and on Home's banner, which moves it to where the full-screen card shows it.
 public struct MediaDetailInfoView: View {
     let viewModel: MediaDetailInfoViewModel
+    @Environment(\.hidesSpoilers) private var hidesSpoilers
 
     init(viewModel: MediaDetailInfoViewModel) {
         self.viewModel = viewModel
@@ -42,7 +43,7 @@ public struct MediaDetailInfoView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            if let overview = viewModel.overview {
+            if let overview = viewModel.overview(hidingSpoilers: hidesSpoilers) {
                 Text(overview)
                     .font(.body)
                     .lineLimit(Metrics.overviewLineLimit)

@@ -257,4 +257,155 @@ struct SessionManagerTests {
         #expect(manager.servers.map(\.server) == [.sample()])
         #expect(authority.endedSessions.isEmpty)
     }
+
+    // MARK: Opening the last profile at launch
+
+    @Test func opensTheProfileOpenedLastAtLaunch() async throws {
+        let manager = try launch(with: .sample())
+        let relaunched = makeManager()
+
+        await relaunched.restoreOpeningLastProfile()
+
+        #expect(relaunched.state == .signedIn(.sample()))
+        _ = manager
+    }
+
+    @Test func launchesOnTheProfilePickerIfTheLastProfileWasSignedOut() async throws {
+        let manager = try launch(with: .sample())
+        try manager.signIn(.sample())
+        await manager.signOut()
+        let relaunched = makeManager()
+
+        await relaunched.restoreOpeningLastProfile()
+
+        #expect(relaunched.state == .choosingProfile)
+    }
+
+    @Test func launchesOnTheProfilePickerIfTheServerRevokedTheLastProfile() async throws {
+        _ = try launch(with: .sample())
+        authority.answer(.revoked)
+        let relaunched = makeManager()
+
+        await relaunched.restoreOpeningLastProfile()
+
+        #expect(relaunched.state == .choosingProfile)
+    }
+
+    // MARK: Adding an account from Settings
+
+    @Test func addingAnAccountSavesItWithoutOpeningIt() throws {
+        let alex = UserSession.sample(userID: "alex", userName: "Alex")
+        let sam = UserSession.sample(userID: "sam", userName: "Sam", token: "sam-token", server: .sample(id: "server-2", name: "Office"))
+        let manager = makeManager()
+        try manager.signIn(alex)
+
+        try manager.add(sam)
+
+        #expect(manager.state == .signedIn(alex))
+        #expect(manager.lastOpenedProfile == ProfileID(serverID: "server-1", userID: "alex"))
+        #expect(try saved().map(\.id) == ["server-1", "server-2"])
+        #expect(manager.servers[1].session(for: "sam") == sam)
+    }
+
+    // MARK: Signing an account out
+
+    @Test func signingOutAnotherAccountKeepsTheOpenProfileOpen() async throws {
+        let alex = UserSession.sample(userID: "alex", userName: "Alex")
+        let sam = UserSession.sample(userID: "sam", userName: "Sam", token: "sam-token")
+        let manager = makeManager()
+        try manager.add(sam)
+        try manager.signIn(alex)
+
+        await manager.signOut("sam", on: "server-1")
+
+        #expect(manager.state == .signedIn(alex))
+        #expect(try saved().first?.isSignedIn("sam") == false)
+        #expect(try saved().first?.isSignedIn("alex") == true)
+        #expect(authority.endedSessions == [sam])
+        // Still on the profile picker.
+        #expect(manager.servers.first?.users.map(\.id) == ["sam", "alex"])
+    }
+
+    @Test func signingOutTheOpenProfileClosesIt() async throws {
+        let manager = makeManager()
+        try manager.signIn(.sample())
+
+        await manager.signOut("user-1", on: "server-1")
+
+        #expect(manager.state == .choosingProfile)
+        #expect(try saved().first?.isSignedIn("user-1") == false)
+    }
+
+    // MARK: Removing a server
+
+    @Test func removingAServerForgetsItsProfilesAndEndsTheirSessions() async throws {
+        let alex = UserSession.sample(userID: "alex", userName: "Alex")
+        let sam = UserSession.sample(userID: "sam", userName: "Sam", token: "sam-token", server: .sample(id: "server-2", name: "Office"))
+        let manager = makeManager()
+        try manager.add(sam)
+        try manager.signIn(alex)
+
+        try await manager.removeServer("server-2")
+
+        #expect(manager.state == .signedIn(alex))
+        #expect(manager.servers.map(\.id) == ["server-1"])
+        #expect(try saved().map(\.id) == ["server-1"])
+        #expect(authority.endedSessions == [sam])
+    }
+
+    @Test func removingTheOpenProfilesServerClosesItAndForgetsItWasOpenedLast() async throws {
+        let sam = UserSession.sample(userID: "sam", userName: "Sam", token: "sam-token", server: .sample(id: "server-2", name: "Office"))
+        let manager = makeManager()
+        try manager.add(.sample())
+        try manager.signIn(sam)
+
+        try await manager.removeServer("server-2")
+
+        #expect(manager.state == .choosingProfile)
+        #expect(manager.lastOpenedProfile == nil)
+        let relaunched = makeManager()
+        relaunched.restore()
+        #expect(relaunched.lastOpenedProfile == nil)
+        #expect(relaunched.servers.map(\.id) == ["server-1"])
+    }
+
+    @Test func removingTheLastServerStartsOver() async throws {
+        let manager = try launch(with: .sample())
+
+        try await manager.removeServer("server-1")
+
+        #expect(manager.servers.isEmpty)
+        #expect(try saved().isEmpty)
+    }
+
+    // MARK: Changing a server's address
+
+    @Test func aServerAtANewAddressKeepsItsAccountsSignedIn() throws {
+        let manager = makeManager()
+        try manager.signIn(.sample())
+        let moved = ServerInfo.sample(url: "http://192.168.1.20:8920")
+
+        try manager.updateAddress(of: moved)
+
+        #expect(manager.servers.first?.server.url == moved.url)
+        #expect(try saved().first?.server.url == moved.url)
+        #expect(try saved().first?.isSignedIn("user-1") == true)
+        // The open profile reaches it there from now on.
+        #expect(manager.state.session?.server.url == moved.url)
+    }
+
+    // MARK: Someone renamed
+
+    @Test func takesARenamedUserHereAndInTheOpenProfile() throws {
+        let manager = makeManager()
+        try manager.signIn(.sample())
+        let renamed = User(id: "user-1", name: "Alex Rivera", serverID: "server-1", primaryImageTag: "new-picture")
+
+        manager.updateUser(renamed, on: "server-1")
+
+        #expect(manager.servers.first?.users == [renamed])
+        #expect(try saved().first?.users == [renamed])
+        #expect(manager.state.session?.user == renamed)
+        #expect(manager.state.session?.accessToken == "token-123")
+    }
 }

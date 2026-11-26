@@ -32,3 +32,10 @@ public struct TestError: Error, Hashable, Sendable {
         self.message = message
     }
 }
+
+extension UserDefaults {
+    /// Settings of a test's own, starting empty, kept apart from every other test's and the app's.
+    public static func forTesting() -> UserDefaults {
+        UserDefaults(suiteName: "tests-\(UUID().uuidString)")!
+    }
+}
