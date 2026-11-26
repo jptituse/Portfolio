@@ -97,6 +97,22 @@ struct SignInViewModelTests {
         #expect(viewModel.isSigningIn == false)
     }
 
+    @Test func anAccountAddedFromSettingsIsSavedWithoutOpeningIt() async throws {
+        let server = try await self.server
+        try sessionManager.signIn(.sample())
+        let viewModel = SignInViewModel(server: server, user: nil, client: .mocked, sessionManager: sessionManager, opensProfile: false)
+        var signedIn = false
+        viewModel.onSignedIn = { signedIn = true }
+        viewModel.username = "alex"
+
+        await signIn(viewModel, password: "hunter2")
+
+        #expect(signedIn)
+        #expect(sessionManager.state == .signedIn(.sample()))
+        #expect(sessionManager.servers.map(\.server.name) == ["Living Room", "Living Room"])
+        #expect(sessionManager.servers.last?.users.map(\.name) == ["alex"])
+    }
+
     @Test func someoneElseSignsInWithTheUsernameTheyTyped() async throws {
         let viewModel = try await makeViewModel()
         viewModel.username = " alex "

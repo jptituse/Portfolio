@@ -478,7 +478,7 @@ struct PlayerViewModelTests {
         let sessionManager = SessionManager(store: MediaServerStore(storage: InMemorySecureStorage()), authority: client)
         let server = try await client.validateServer(at: mock.url)
         try sessionManager.signIn(try await client.signIn(to: server, username: "alex", password: "hunter2"))
-        return CurrentProfileViewModel(client: client, sessionManager: sessionManager)
+        return CurrentProfileViewModel(client: client, sessionManager: sessionManager, devicePreferences: DevicePreferences(defaults: .forTesting()))
     }
 
     @Test func playsAnItemFromTheProfilesServerAsItIs() async throws {

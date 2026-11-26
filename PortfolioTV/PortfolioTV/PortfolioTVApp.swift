@@ -17,6 +17,7 @@ struct PortfolioTVApp: App {
     /// This is the one place those choices are made.
     private let client: JellyfinServerClient
     @State private var sessionManager: SessionManager
+    @State private var preferences: DevicePreferences
 
     init() {
         let client = JellyfinServerClient(identity: .current())
@@ -27,6 +28,18 @@ struct PortfolioTVApp: App {
                 authority: client
             )
         )
+        _preferences = State(initialValue: DevicePreferences(defaults: Self.defaults))
+    }
+
+    /// Where settings are kept.
+    private static var defaults: UserDefaults {
+        #if DEBUG
+        // UI tests pass a fresh suite so every launch starts with Settings as they come.
+        if let suite = ProcessInfo.processInfo.environment["PORTFOLIO_DEFAULTS_SUITE"], let defaults = UserDefaults(suiteName: suite) {
+            return defaults
+        }
+        #endif
+        return .standard
     }
 
     private static var keychainService: String {
@@ -41,10 +54,13 @@ struct PortfolioTVApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(sessionManager: sessionManager, client: client) { profiles in
+            RootView(sessionManager: sessionManager, client: client, preferences: preferences) { profiles in
                 ProfilesView(viewModel: profiles)
             } main: { currentProfile in
-                MainNavigationView(currentProfile: currentProfile) { try AetherPlaybackEngine() }
+                MainNavigationView(currentProfile: currentProfile, playbackEngine: AetherPlaybackEngine.about) {
+                    // Settings as they are as each player opens.
+                    try AetherPlaybackEngine(preferences: preferences.playback)
+                }
             }
         }
     }

@@ -2,13 +2,15 @@ import Observation
 import PortfolioShared
 import PortfolioSharedJellyfinClient
 
-/// The open profile's Home: a banner of what was added most recently, then Continue Watching (what
-/// they're partway through, and the next episode of each show they're watching), then the latest of
-/// each library. It loads again each time it's shown, so it keeps up with the server.
+/// The open profile's Home: a banner of what was added most recently, or of the collection or playlist
+/// the profile chose in Settings (its Hero), then Continue Watching (what they're partway through, and
+/// the next episode of each show they're watching), then the latest of each library. It loads again
+/// each time it's shown, so it keeps up with the server and with Settings.
 @MainActor
 @Observable
 public final class HomeViewModel {
-    /// The items the banner goes through: the first few added most recently.
+    /// The items the banner goes through: the first few added most recently, or the first few of the
+    /// collection or playlist chosen.
     // FIXME: Choose these with the recommendations (#30), rather than just the newest.
     public private(set) var bannerItems: [MediaItem] = []
     /// The rows under the banner: Continue Watching, then the latest of each library. Empty until
@@ -28,13 +30,15 @@ public final class HomeViewModel {
 
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let session: UserSession?
+    @ObservationIgnored private let preferences: ProfilePreferences?
     /// The load under way. It's Home's own, so the view that asked for it going away doesn't cancel it.
     @ObservationIgnored private var loading: Task<Void, Never>?
 
-    init(client: JellyfinServerClient, session: UserSession?, userDataUpdates: UserDataUpdates? = nil) {
+    init(client: JellyfinServerClient, session: UserSession?, userDataUpdates: UserDataUpdates? = nil, preferences: ProfilePreferences? = nil) {
         self.client = client
         self.session = session
         self.userDataUpdates = userDataUpdates
+        self.preferences = preferences
         images = session.map { JellyfinImageResolver(server: $0.server) }
     }
 
@@ -67,7 +71,7 @@ public final class HomeViewModel {
         }
         defer { isLoading = false }
         do {
-            async let banner = client.recentlyAdded(for: session, limit: Self.bannerCount)
+            async let banner = bannerItems(for: preferences?.hero ?? .recentlyAdded, session: session)
             async let resume = client.resumeItems(for: session)
             async let nextUp = client.nextUp(for: session)
             async let libraries = client.libraries(for: session)
@@ -86,6 +90,14 @@ public final class HomeViewModel {
             // Rows already showing stay, with why they couldn't be brought up to date.
             message = LoadingFailure.message(for: error, server: session.server.name, activity: "loading what's new")
             canRetry = true
+        }
+    }
+
+    /// The items the banner goes through for the profile's Hero.
+    private func bannerItems(for hero: ProfilePreferences.Hero, session: UserSession) async throws -> [MediaItem] {
+        switch hero {
+        case .recentlyAdded: try await client.recentlyAdded(for: session, limit: Self.bannerCount)
+        case .collection(let id, _), .playlist(let id, _): try await client.items(in: id, for: session, limit: Self.bannerCount)
         }
     }
 

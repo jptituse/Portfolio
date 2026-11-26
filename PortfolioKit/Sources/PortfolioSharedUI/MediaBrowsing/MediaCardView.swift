@@ -14,6 +14,7 @@ public struct MediaCardView: View {
     let artworkFrame: CGRect?
 
     @Environment(\.viewState) private var layer
+    @Environment(\.hidesSpoilers) private var hidesSpoilers
 
     /// - Parameter artworkFrame: where the landscape art is, in the card's coordinates. Without one, it
     ///   fills the card. It animates along with the card's own frame, in the same animation, so the two
@@ -90,9 +91,15 @@ public struct MediaCardView: View {
             image
                 .resizable()
                 .scaledToFill()
+                .blur(radius: spoilerBlur, opaque: true)
         } placeholder: {
             ImagePlaceholderView()
         }
+    }
+
+    /// How much to blur the artwork: an episode's still gives away what happens in it.
+    private var spoilerBlur: CGFloat {
+        viewModel.isSpoiler(hidingSpoilers: hidesSpoilers) ? Metrics.spoilerBlur : 0
     }
 
     /// The landscape art, over the poster while the card is wider. It's only drawn while it shows or
@@ -106,6 +113,7 @@ public struct MediaCardView: View {
                     image
                         .resizable()
                         .scaledToFill()
+                        .blur(radius: spoilerBlur, opaque: true)
                 } placeholder: {
                     Color.clear
                 }

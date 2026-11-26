@@ -2,7 +2,8 @@ import PortfolioSharedUI
 import SwiftUI
 
 /// Everything before someone is signed in: the profile picker, or the welcome screen on a fresh
-/// install, with the steps of adding a server pushed on top. Menu goes back a step.
+/// install, with the steps of adding a server pushed on top. Menu goes back a step. Settings shows it
+/// too, to add a server or an account, starting at the welcome screen or the server picker.
 struct ProfilesView: View {
     @State private var viewModel: ProfilesViewModel
 
@@ -20,10 +21,10 @@ struct ProfilesView: View {
     }
 
     @ViewBuilder private var first: some View {
-        if let picker = viewModel.picker {
-            ProfilePickerView(viewModel: picker)
-        } else {
-            welcome
+        switch viewModel.first {
+        case .picker(let picker): ProfilePickerView(viewModel: picker)
+        case .welcome: welcome
+        case .servers(let servers): ServerPickerView(viewModel: servers)
         }
     }
 

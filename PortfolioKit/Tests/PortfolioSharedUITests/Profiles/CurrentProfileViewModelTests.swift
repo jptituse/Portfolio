@@ -12,7 +12,7 @@ struct CurrentProfileViewModelTests {
     let viewModel: CurrentProfileViewModel
 
     init() {
-        viewModel = CurrentProfileViewModel(client: .mocked, sessionManager: sessionManager)
+        viewModel = CurrentProfileViewModel(client: .mocked, sessionManager: sessionManager, devicePreferences: DevicePreferences(defaults: .forTesting()))
     }
 
     @Test func showsWhoIsSignedInAndOnWhichServer() throws {

@@ -16,6 +16,7 @@ struct MainNavigationView: View {
 
     @State private var viewModel: MainNavigationViewModel
     @State private var home: HomeViewModel
+    @State private var settings: SettingsViewModel
     /// What's playing, while something is.
     @State private var player: PlayerViewModel?
     /// Shows what's playing's detail view behind the player as it closes, when it didn't open from there.
@@ -24,11 +25,17 @@ struct MainNavigationView: View {
     @State private var isPlayerUp = false
     @FocusState private var focusedSection: MainSection?
 
-    init(currentProfile: CurrentProfileViewModel, makePlaybackEngine: @escaping () throws -> any PlaybackEngine) {
+    /// - Parameter playbackEngine: the playback engine's name and version, for Settings' About.
+    init(
+        currentProfile: CurrentProfileViewModel,
+        playbackEngine: (name: String, version: String),
+        makePlaybackEngine: @escaping () throws -> any PlaybackEngine
+    ) {
         self.currentProfile = currentProfile
         self.makePlaybackEngine = makePlaybackEngine
         _viewModel = State(initialValue: MainNavigationViewModel(libraries: currentProfile.makeLibrariesViewModel()))
         _home = State(initialValue: currentProfile.makeHomeViewModel())
+        _settings = State(initialValue: currentProfile.makeSettingsViewModel(engine: playbackEngine))
     }
 
     var body: some View {
@@ -74,6 +81,7 @@ struct MainNavigationView: View {
             }
         }
         .environment(\.isPlayerUp, isPlayerUp)
+        .environment(\.hidesSpoilers, currentProfile.preferences?.hidesSpoilers ?? false)
         .environment(\.preparePlayback, PreparePlaybackAction(currentProfile))
         .fullScreenCover(item: $player, onDismiss: playerDidClose) { player in
             PlayerView(viewModel: player, onClose: closePlayer)
@@ -142,7 +150,7 @@ struct MainNavigationView: View {
         case .home: HomeView(viewModel: home, isShowing: isShowing, onPlay: play)
         case .library(let scope): LibraryView(viewModel: viewModel.libraries.viewModel(for: scope), isShowing: isShowing, onPlay: play)
         case .search: SearchView()
-        case .settings: SettingsView()
+        case .settings: SettingsView(viewModel: settings)
         }
     }
 }
@@ -169,6 +177,6 @@ private extension View {
 
 #if DEBUG
 #Preview {
-    MainNavigationView(currentProfile: .preview()) { throw CancellationError() }
+    MainNavigationView(currentProfile: .preview(), playbackEngine: ("AetherEngine", "1.0")) { throw CancellationError() }
 }
 #endif

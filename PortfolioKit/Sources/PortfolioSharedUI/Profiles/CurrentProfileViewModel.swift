@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 import PortfolioShared
 import PortfolioSharedJellyfinClient
@@ -10,14 +11,21 @@ import PortfolioSharedPlaybackEngine
 public final class CurrentProfileViewModel {
     @ObservationIgnored private let client: JellyfinServerClient
     @ObservationIgnored private let sessionManager: SessionManager
+    @ObservationIgnored private let devicePreferences: DevicePreferences
     /// Where items play from, found ahead of Play, by item.
     @ObservationIgnored private var preparedSources: [MediaItem.ID: PreparedSource] = [:]
     /// Where the profile got to in what they've played here, for every card to show.
     public let userDataUpdates = UserDataUpdates()
+    /// The profile's own settings.
+    public let preferences: ProfilePreferences?
 
-    init(client: JellyfinServerClient, sessionManager: SessionManager) {
+    init(client: JellyfinServerClient, sessionManager: SessionManager, devicePreferences: DevicePreferences, defaults: UserDefaults = .standard) {
         self.client = client
         self.sessionManager = sessionManager
+        self.devicePreferences = devicePreferences
+        preferences = sessionManager.state.session.map { session in
+            ProfilePreferences(profile: ProfileID(serverID: session.server.id, userID: session.user.id), defaults: defaults)
+        }
     }
 
     /// Who's signed in, with their picture and the server they're on.
@@ -38,7 +46,20 @@ public final class CurrentProfileViewModel {
 
     /// The profile's Home, loading from their server.
     public func makeHomeViewModel() -> HomeViewModel {
-        HomeViewModel(client: client, session: sessionManager.state.session, userDataUpdates: userDataUpdates)
+        HomeViewModel(client: client, session: sessionManager.state.session, userDataUpdates: userDataUpdates, preferences: preferences)
+    }
+
+    /// Settings, for this device and this profile.
+    ///
+    /// - Parameter engine: the playback engine's name and version, for About.
+    public func makeSettingsViewModel(engine: (name: String, version: String)) -> SettingsViewModel {
+        SettingsViewModel(
+            devicePreferences: devicePreferences,
+            profilePreferences: preferences,
+            sessionManager: sessionManager,
+            client: client,
+            engine: engine
+        )
     }
 
     /// The profile's libraries, loading from their server.

@@ -89,6 +89,12 @@ public final class MediaCardViewModel {
 
     /// The user's state for the item: the newest known, which can be newer than the item's own after
     /// playing it here.
+    /// Whether its artwork gives away what happens in an episode the profile hasn't watched, to blur it
+    /// while `hidingSpoilers`.
+    func isSpoiler(hidingSpoilers: Bool) -> Bool {
+        hidingSpoilers && item.episode != nil && !userData.isPlayed
+    }
+
     var userData: UserData {
         userDataUpdates?.userData(for: item) ?? item.userData
     }
