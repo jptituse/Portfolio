@@ -11,8 +11,9 @@ import SwiftUI
 ///
 /// Its controls are a transport bar: they show on any press, and hide by themselves after
 /// `controlsTimeout` while it plays, staying while it's paused or held. Playing and pausing, scrubbing
-/// while paused (picking a spot, then playing from it), and choosing the audio track, the subtitles and
-/// the quality go through here. A choice the engine can make in the stream playing, it makes; one that
+/// while paused (picking a spot, then playing from it), clicking Left and Right to skip or move the spot,
+/// holding one to set the needle moving by itself, and choosing the audio track, the subtitles and the
+/// quality go through here. A choice the engine can make in the stream playing, it makes; one that
 /// needs another stream asks the server for it and plays it from where playback is, then has the server
 /// stop making the stream it left.
 ///
@@ -87,9 +88,28 @@ public final class PlayerViewModel: Identifiable {
     public private(set) var menuFocus: PlayerMenu.Item.ID?
     /// Where scrubbing would take playback, while scrubbing.
     public private(set) var scrubPosition: Duration?
+    /// The needle moving along the bar by itself, as holding Left or Right sets it going, until it's
+    /// stopped or reaches an end.
+    public private(set) var drive: Drive?
+    @ObservationIgnored private var driving: Task<Void, Never>?
+    /// The skip just made, shown beside the elapsed time until a moment after playback gets there.
+    public private(set) var skipHint: SkipHint?
+    @ObservationIgnored private var clearingSkipHint: Task<Void, Never>?
+    /// The server's pictures of the video at a steady interval, once it's said, if it has any.
+    public private(set) var trickplay: Trickplay?
+    /// The server's picture of the spot, while scrubbing, once it's loaded: the one before until then.
+    public private(set) var scrubPreview: CGImage?
+    /// Which of the server's pictures `scrubPreview` is, or is loading.
+    @ObservationIgnored private var previewIndex: Int?
+    @ObservationIgnored private var loadingPreview: Task<Void, Never>?
+    @ObservationIgnored private let findTrickplay: ((PlaybackSource) async -> Trickplay?)?
+    @ObservationIgnored private let pipeline: ImagePipeline
     /// Whether it's been paused: what was asked for, which the engine says a moment later, and not while
     /// it seeks.
     public private(set) var isPaused = false
+    /// Whether it's been paused, by Select or Play/Pause or by the app going to the background, and
+    /// nothing done since: Menu then leaves playback, rather than playing on (`resume()`).
+    public private(set) var isPausedUntouched = false
     /// Where a seek is taking playback, until it's there.
     private var seekTarget: Duration?
     /// Where the engine says playback is, as the controls show it: kept as the media plays, and changed
@@ -123,6 +143,9 @@ public final class PlayerViewModel: Identifiable {
     ///   - playbackDefaults: the most Auto streams at, and the languages it starts in, from Settings, and
     ///     whether Style starts on Original.
     ///   - rememberOriginalSubtitles: keeps whether Style is Original for the item, as it changes.
+    ///   - trickplay: finds the server's pictures of what a source plays at a steady interval, to show
+    ///     where scrubbing would take it, once it plays.
+    ///   - pipeline: loads those pictures.
     init(
         title: String,
         subtitle: String? = nil,
@@ -139,8 +162,12 @@ public final class PlayerViewModel: Identifiable {
         captionStyles: CaptionStyles = .system,
         preferences: UserDefaults = .standard,
         playbackDefaults: PlaybackDefaults = PlaybackDefaults(),
-        rememberOriginalSubtitles: ((Bool) -> Void)? = nil
+        rememberOriginalSubtitles: ((Bool) -> Void)? = nil,
+        trickplay: ((PlaybackSource) async -> Trickplay?)? = nil,
+        pipeline: ImagePipeline = .shared
     ) {
+        self.findTrickplay = trickplay
+        self.pipeline = pipeline
         self.title = title
         self.subtitle = subtitle
         self.controlsTimeout = controlsTimeout
@@ -260,6 +287,10 @@ public final class PlayerViewModel: Identifiable {
                 }
                 if let reportStarted { send { await reportStarted(found, position) } }
                 startReportingProgress()
+                if let findTrickplay {
+                    trickplay = await findTrickplay(found)
+                    showPreview()
+                }
             } catch is CancellationError {
                 // Closed meanwhile.
             } catch {
@@ -407,6 +438,7 @@ public final class PlayerViewModel: Identifiable {
     /// Keeps the controls up while `held`, such as while focus is on their menus, then counts down to
     /// hiding them again.
     public func holdControls(_ held: Bool) {
+        if held { isPausedUntouched = false }
         guard held != holdsControls else { return }
         holdsControls = held
         if showsControls { scheduleHidingControls() }
@@ -416,7 +448,8 @@ public final class PlayerViewModel: Identifiable {
     public func togglePlayPause() {
         guard let engine else { return }
         if let target = scrubPosition {
-            scrubPosition = nil
+            stopDriving()
+            moveSpot(to: nil)
             isPaused = false
             seek(to: target)
         } else if isPaused {
@@ -426,16 +459,18 @@ public final class PlayerViewModel: Identifiable {
             isPaused = true
             engine.pause()
         }
+        isPausedUntouched = isPaused
         showControls()
         sendProgress()
     }
 
     /// Moves playback to `target`, then plays or stays paused as it was asked: an engine can come out of
-    /// a seek playing.
-    private func seek(to target: Duration) {
-        guard let engine else { return }
+    /// a seek playing. Gives the seek, which ends once the engine is there.
+    @discardableResult
+    private func seek(to target: Duration) -> Task<Void, Never> {
+        guard let engine else { return Task {} }
         seekTarget = target
-        Task { [weak self] in
+        return Task { [weak self] in
             await engine.seek(to: target)
             guard let self, self.seekTarget == target else { return }
             self.finishSeeking()
@@ -443,10 +478,13 @@ public final class PlayerViewModel: Identifiable {
         }
     }
 
-    /// Starts picking a spot to play from, while paused.
+    /// Starts picking a spot to play from, while paused. A swipe starting does it, so it stops the
+    /// needle moving by itself: the finger takes it from there.
     public func beginScrubbing() {
         guard isPaused else { return }
-        if scrubPosition == nil { scrubPosition = position }
+        isPausedUntouched = false
+        stopDriving()
+        if scrubPosition == nil { moveSpot(to: position) }
         showControls()
     }
 
@@ -454,14 +492,164 @@ public final class PlayerViewModel: Identifiable {
     /// `playbackProgress` it's exactly where playback is.
     public func scrub(to fraction: Double) {
         guard isScrubbing, duration > .zero else { return }
-        scrubPosition = fraction == playbackProgress ? playbackPosition : duration * min(1, max(0, fraction))
+        moveSpot(to: fraction == playbackProgress ? playbackPosition : duration * min(1, max(0, fraction)))
         showControls()
     }
 
-    /// Menu while scrubbing: puts the spot back where playback is.
-    public func cancelScrubbing() {
-        scrubPosition = nil
+    /// Clicking Left or Right, as the system player takes it. With the needle moving by itself, it goes
+    /// faster that way, or slower the other (`Drive.stepped(_:)`). Scrubbing, or paused with the
+    /// controls up, it moves the spot `scrubStep` that way, starting to scrub. Otherwise it skips
+    /// playback by Settings' Skip Back or Skip Forward, showing which beside the time
+    /// (`skipHint`), and shows the controls.
+    public func click(_ direction: Direction) {
+        guard engine != nil, duration > .zero else { return }
+        isPausedUntouched = false
+        if let drive {
+            self.drive = drive.stepped(direction)
+            showControls()
+        } else if isScrubbing || isPaused && showsControls {
+            beginScrubbing()
+            guard let spot = scrubPosition else { return }
+            moveSpot(to: min(max(spot + Self.scrubStep * direction.sign, .zero), duration))
+            showSkip(direction, by: Self.scrubStep, until: nil)
+        } else {
+            skip(direction)
+        }
+    }
+
+    /// Holding Left or Right, as the system player takes it: playback pauses, and the needle sets off
+    /// from where it is that way, at the slowest speed. It goes on after the click lets go, until
+    /// Select or Play/Pause plays from it, a swipe takes it over, it reaches an end, or Menu plays from
+    /// where playback paused (`resume()`). Held again while it moves, it's as a click.
+    public func hold(_ direction: Direction) {
+        guard let engine, duration > .zero else { return }
+        isPausedUntouched = false
+        guard drive == nil else {
+            click(direction)
+            return
+        }
+        if !isPaused {
+            isPaused = true
+            engine.pause()
+            sendProgress()
+        }
+        if scrubPosition == nil { moveSpot(to: playbackPosition) }
+        drive = Drive(rate: Drive.rates[0] * direction.sign)
         showControls()
+        startDriving()
+    }
+
+    /// Skips playback by Settings' Skip Back or Skip Forward, within the media, and shows which until
+    /// `skipHintDelay` after playback gets there, as the system player does.
+    private func skip(_ direction: Direction) {
+        let interval = direction == .forward ? playbackDefaults.skipForward : playbackDefaults.skipBack
+        let landing = seek(to: min(max(playbackPosition + interval * direction.sign, .zero), duration))
+        showControls()
+        showSkip(direction, by: interval, until: landing)
+    }
+
+    /// Shows a skip `direction` by `interval` beside the time, until `skipHintDelay` after `landing`
+    /// ends, or after now without one.
+    private func showSkip(_ direction: Direction, by interval: Duration, until landing: Task<Void, Never>?) {
+        skipHint = SkipHint(direction: direction, seconds: Int(interval.components.seconds))
+        clearingSkipHint?.cancel()
+        clearingSkipHint = Task { [weak self] in
+            await landing?.value
+            try? await Task.sleep(for: Self.skipHintDelay)
+            guard !Task.isCancelled else { return }
+            self?.skipHint = nil
+        }
+    }
+
+    /// Menu while scrubbing: the spot goes back where playback paused, the needle stops, and the
+    /// controls are as they are paused, the title and menu buttons back. Menu again plays on.
+    public func cancelScrubbing() {
+        guard isScrubbing else { return }
+        stopDriving()
+        moveSpot(to: nil)
+        showControls()
+    }
+
+    /// Menu while paused: plays from where playback paused, leaving any spot picked but not played from,
+    /// and the needle moving by itself.
+    public func resume() {
+        guard let engine, isPaused else { return }
+        stopDriving()
+        moveSpot(to: nil)
+        isPaused = false
+        isPausedUntouched = false
+        engine.play()
+        showControls()
+        sendProgress()
+    }
+
+    /// The app went to the background, as when the user switches to another: it pauses, so it's
+    /// waiting where it was on the way back, with its controls up. AetherEngine lets go of the video
+    /// there on tvOS, and opens it again on the way back.
+    public func enteredBackground() {
+        guard let engine, !isPaused, duration > .zero else { return }
+        isPaused = true
+        isPausedUntouched = true
+        engine.pause()
+        showControls()
+        sendProgress()
+    }
+
+    /// Moves the spot as `drive` says, as often as AVKit's needle moves, until it's stopped, or reaches
+    /// an end, where it stops.
+    private func startDriving() {
+        driving?.cancel()
+        driving = Task { [weak self] in
+            var last = ContinuousClock.now
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.driveInterval)
+                let now = ContinuousClock.now
+                guard !Task.isCancelled, let self, let drive = self.drive, let spot = self.scrubPosition else { return }
+                let moved = min(max(spot + (now - last) * drive.rate, .zero), self.duration)
+                last = now
+                self.moveSpot(to: moved)
+                if moved == .zero || moved == self.duration {
+                    self.drive = nil
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopDriving() {
+        driving?.cancel()
+        driving = nil
+        if drive != nil { drive = nil }
+    }
+
+    /// Moves the spot scrubbing picks, or puts it away, and shows the server's picture of it.
+    private func moveSpot(to spot: Duration?) {
+        scrubPosition = spot
+        showPreview()
+    }
+
+    /// Shows the server's picture of the spot, while scrubbing: at once if its tile is in memory, else
+    /// once it's loaded, unless the spot has moved on to another meanwhile, the one before staying
+    /// until then. Tiles are loaded whole, so the pictures near one already loaded show at once.
+    private func showPreview() {
+        guard let trickplay, let spot = scrubPosition, let picture = trickplay.picture(at: spot) else {
+            loadingPreview?.cancel()
+            previewIndex = nil
+            if scrubPreview != nil { scrubPreview = nil }
+            return
+        }
+        guard picture.index != previewIndex else { return }
+        previewIndex = picture.index
+        loadingPreview?.cancel()
+        if let tile = pipeline.cachedImage(for: picture.tileURL) {
+            scrubPreview = tile.cropping(to: picture.rect)
+            return
+        }
+        loadingPreview = Task { [weak self, pipeline] in
+            let tile = try? await pipeline.image(for: picture.tileURL, httpHeaders: trickplay.httpHeaders, priority: .high)
+            guard let self, let tile, !Task.isCancelled, previewIndex == picture.index else { return }
+            scrubPreview = tile.cropping(to: picture.rect)
+        }
     }
 
     /// Hides the controls after `controlsTimeout`, unless it's paused, scrubbing or they're held.
@@ -481,6 +669,107 @@ public final class PlayerViewModel: Identifiable {
 
     /// How long the controls stay while it plays and nothing is pressed.
     public nonisolated static let controlsTimeout = Duration.seconds(5)
+    /// How far a click moves the spot while scrubbing, whatever Settings' skips: AVKit's
+    /// (`skipToNextScrubbingFrame`).
+    nonisolated static let scrubStep = Duration.seconds(10)
+    /// How long a skip shows once playback gets there: AVKit's (`clearHintAfterDelay`).
+    nonisolated static let skipHintDelay = Duration.milliseconds(300)
+    /// How often the needle moves by itself: AVKit's timer, at 48 Hz.
+    nonisolated static let driveInterval = Duration.seconds(1.0 / 48)
+
+    /// Which way a click, a hold or the needle goes: Left or Right.
+    public enum Direction: Hashable, Sendable {
+        case back
+        case forward
+
+        var sign: Double {
+            self == .forward ? 1 : -1
+        }
+
+        /// The side of the time that shows it.
+        var side: HorizontalEdge {
+            self == .forward ? .trailing : .leading
+        }
+    }
+
+    /// A skip just made, as the controls show it: which way, and how far, in seconds.
+    public struct SkipHint: Hashable, Sendable {
+        public let direction: Direction
+        public let seconds: Int
+    }
+
+    /// What shows beside the elapsed time, as the system player shows it: the needle moving by itself,
+    /// which way, with its speed from the second; else a skip just made, how far; else a pause symbol
+    /// while paused, unless a finger is moving the spot (`isInteracting`). Going back, it's before the
+    /// time, and on, after it.
+    public func timeBadge(isInteracting: Bool) -> TimeBadge? {
+        if let drive {
+            return TimeBadge(
+                kind: .drive,
+                symbol: drive.direction == .forward ? "forward.circle" : "backward.circle",
+                number: drive.speed > 1 ? "\(drive.speed)" : nil,
+                side: drive.direction.side
+            )
+        }
+        if let skipHint {
+            let name = skipHint.direction == .forward ? "goforward" : "gobackward"
+            let drawn = Self.skipSymbolSeconds.contains(skipHint.seconds)
+            return TimeBadge(
+                kind: .skip,
+                symbol: drawn ? "\(name).\(skipHint.seconds)" : name,
+                number: nil,
+                side: skipHint.direction.side
+            )
+        }
+        guard isPaused, !isInteracting else { return nil }
+        return TimeBadge(kind: .pause, symbol: "pause.circle", number: nil, side: .trailing)
+    }
+
+    /// What's beside the time: a symbol, and a number after it, on a side of the time.
+    public struct TimeBadge: Hashable, Sendable {
+        public let kind: Kind
+        public let symbol: String
+        public let number: String?
+        public let side: HorizontalEdge
+
+        public enum Kind: Hashable, Sendable {
+            case pause
+            /// A skip just made: an arrow round a circle, which reaches above it.
+            case skip
+            /// The needle moving by itself.
+            case drive
+        }
+    }
+
+    /// The skips SF Symbols draws with their seconds in them.
+    nonisolated static let skipSymbolSeconds: Set = [5, 10, 15, 30, 45, 60, 75, 90]
+
+    /// The needle moving by itself: how fast, in seconds of the media a second, back when negative.
+    public struct Drive: Hashable, Sendable {
+        public let rate: Double
+
+        /// The speeds, either way: AVKit's (`AVScrubbingController.defaultScrubbingRates`), 8 to 96.
+        nonisolated static let rates: [Double] = [8, 24, 48, 96]
+
+        public var direction: Direction {
+            rate < 0 ? .back : .forward
+        }
+
+        /// Which speed it's at, from 1 for the slowest. The system player shows it from 2.
+        public var speed: Int {
+            (Self.rates.firstIndex(of: abs(rate)) ?? 0) + 1
+        }
+
+        /// The next speed `direction`: faster that way, or slower the other, past the slowest to the
+        /// slowest the other way, as AVKit's `advanceToHigherRate` and `advanceToLowerRate` go. It
+        /// stays at the fastest.
+        func stepped(_ direction: Direction) -> Drive {
+            let all = Self.rates.reversed().map { -$0 } + Self.rates
+            guard let index = all.firstIndex(of: rate) else { return self }
+            let next = min(max(index + (direction == .forward ? 1 : -1), 0), all.count - 1)
+            return Drive(rate: all[next])
+        }
+    }
 
     // MARK: Tracks and quality
 
@@ -863,6 +1152,9 @@ public final class PlayerViewModel: Identifiable {
         guard !isClosed else { return }
         isClosed = true
         hidingControls?.cancel()
+        driving?.cancel()
+        clearingSkipHint?.cancel()
+        loadingPreview?.cancel()
         followingPlayback?.cancel()
         loading?.cancel()
         changingStream?.cancel()

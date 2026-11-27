@@ -27,6 +27,20 @@ struct PlaybackDefaultsTests {
         #expect(defaults.startingRequest == PlaybackRequest())
         #expect(defaults.audioTrack(in: source) == nil)
         #expect(defaults.subtitles(in: source) == nil)
+        #expect(defaults.skipBack == ProfilePreferences.defaultSkip)
+        #expect(defaults.skipForward == ProfilePreferences.defaultSkip)
+    }
+
+    @Test @MainActor func skipsAsSettingsSay() {
+        let suite = UserDefaults(suiteName: "PlaybackDefaultsTests-\(UUID().uuidString)")!
+        let preferences = ProfilePreferences(profile: ProfileID(serverID: "server-1", userID: "alex"), defaults: suite)
+        preferences.skipBack = .seconds(10)
+        preferences.skipForward = .seconds(60)
+
+        let defaults = PlaybackDefaults(preferences, item: MediaItem(id: "arrival", name: "Arrival", kind: .movie))
+
+        #expect(defaults.skipBack == .seconds(10))
+        #expect(defaults.skipForward == .seconds(60))
     }
 
     @Test func picksTheTrackTheFileMarksAmongSeveralInALanguageWhateverItsCase() {

@@ -5,8 +5,10 @@ import UniformTypeIdentifiers
 
 extension MockJellyfinServer {
     /// A real PNG, 4 by 6 pixels, for the server to send as any image.
-    public static let samplePNG: Data = {
-        let width = 4, height = 6
+    public static let samplePNG = samplePNG(width: 4, height: 6)
+
+    /// A real PNG `width` by `height` pixels, of one color.
+    public static func samplePNG(width: Int, height: Int) -> Data {
         let context = CGContext(
             data: nil,
             width: width,
@@ -23,5 +25,5 @@ extension MockJellyfinServer {
         CGImageDestinationAddImage(destination, context.makeImage()!, nil)
         CGImageDestinationFinalize(destination)
         return data as Data
-    }()
+    }
 }

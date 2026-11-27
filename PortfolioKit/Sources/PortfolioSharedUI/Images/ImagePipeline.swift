@@ -99,10 +99,12 @@ public final class ImagePipeline: Sendable {
     /// The image at `url`: from memory, or else downloaded (or read from disk) and decoded. A download
     /// finishes even if the caller stops waiting, so the image is ready the next time it's wanted.
     ///
-    /// - Parameter priority: how soon it's wanted. While others wait their turn, the most wanted starts
-    ///   first; asking again for one waiting, wanting it more, moves it up.
+    /// - Parameters:
+    ///   - httpHeaders: what to send with the request, such as to sign in, for images that need it.
+    ///   - priority: how soon it's wanted. While others wait their turn, the most wanted starts first;
+    ///     asking again for one waiting, wanting it more, moves it up.
     /// - Throws: `LoadingError`, or the `URLError` that stopped the download.
-    public func image(for url: URL, priority: ImagePriority = .normal) async throws -> CGImage {
+    public func image(for url: URL, httpHeaders: [String: String] = [:], priority: ImagePriority = .normal) async throws -> CGImage {
         // Memory and the downloads under way are checked together, and a download moves its image into
         // memory and stops being under way together, so two callers asking at once never both download.
         let lookup: Lookup = loading.withLock { downloads in
@@ -110,7 +112,7 @@ public final class ImagePipeline: Sendable {
             if let image = cachedImage(for: url) { return .inMemory(image) }
             let download = Task.detached(priority: .userInitiated) { [self] in
                 do {
-                    let image = try await self.download(url, priority: priority)
+                    let image = try await self.download(url, httpHeaders: httpHeaders, priority: priority)
                     loading.withLock { downloads in
                         decoded.insert(image, for: url)
                         downloads[url] = nil
@@ -143,10 +145,14 @@ public final class ImagePipeline: Sendable {
         case waiting(Task<CGImage, any Error>)
     }
 
-    private func download(_ url: URL, priority: ImagePriority) async throws -> CGImage {
+    private func download(_ url: URL, httpHeaders: [String: String], priority: ImagePriority) async throws -> CGImage {
         await scheduler.acquire(url.absoluteString, priority: priority)
         do {
-            let (data, response) = try await session.data(from: url)
+            var request = URLRequest(url: url)
+            for (field, value) in httpHeaders {
+                request.setValue(value, forHTTPHeaderField: field)
+            }
+            let (data, response) = try await session.data(for: request)
             await scheduler.release()
             if let response = response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
                 throw LoadingError.status(response.statusCode)

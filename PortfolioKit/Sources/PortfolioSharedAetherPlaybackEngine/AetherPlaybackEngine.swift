@@ -3,12 +3,20 @@ import Observation
 import PortfolioShared
 import PortfolioSharedPlaybackEngine
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// A `PlaybackEngine` that plays through AetherEngine, the one type outside this module that knows it.
 /// It mirrors the engine's Combine state as observable properties, and draws the subtitles AetherEngine
 /// leaves to its host (`SubtitlesView`).
 ///
 /// One engine per player: AetherEngine binds to one surface, and `stop()` tears its session down.
+///
+/// On tvOS, AetherEngine lets go of the video as the app goes to the background, so nothing it holds is
+/// wedged through a suspension, and leaves opening it again to its host: this opens it again at the
+/// playhead once the app is back (`reloadAtCurrentPosition()`), playing or paused as it was last asked.
+/// Without it, coming back to a movie left it never loading.
 @MainActor
 @Observable
 public final class AetherPlaybackEngine: PlaybackEngine {
@@ -26,6 +34,12 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     /// Where playback was while the engine rebuilds itself at the playhead, and when the hold gives up.
     @ObservationIgnored private var rebuildHold: RebuildHold?
     @ObservationIgnored private var rebuildTimeout: Task<Void, Never>?
+    /// Whether it was last asked to play rather than pause, which opening again keeps: AetherEngine,
+    /// left to itself, plays.
+    @ObservationIgnored private var playsWhenOpen = false
+    /// Whether the app went to the background with something open, so the engine has let go of it.
+    @ObservationIgnored private var isBackgrounded = false
+    @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
 
     /// - Parameter preferences: how this device plays, as Settings has it when the player opens.
     /// - Throws: if AetherEngine can't start, such as when its audio session is unavailable.
@@ -49,6 +63,19 @@ public final class AetherPlaybackEngine: PlaybackEngine {
                 }
             },
         ]
+        #if canImport(UIKit)
+        let center = NotificationCenter.default
+        let background = UIApplication.didEnterBackgroundNotification
+        let active = UIApplication.didBecomeActiveNotification
+        lifecycleObservers = [
+            center.addObserver(forName: background, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.enteredBackground() }
+            },
+            center.addObserver(forName: active, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.becameActive() }
+            },
+        ]
+        #endif
     }
 
     /// The engine's name and version, for About.
@@ -56,6 +83,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
 
     isolated deinit {
         mirroring.forEach { $0.cancel() }
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     public var surface: AnyView {
@@ -71,6 +99,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     public func load(_ source: PlaybackSource, startingAt position: Duration) async throws {
         endRebuildHold()
         self.source = source
+        playsWhenOpen = false
         var options = Self.options(for: source, preferences, reducesLoudSounds: reducesLoudSounds)
         options.externalSubtitles = TrackNumbering.subtitleFiles(in: source).map { file in
             ExternalSubtitleTrack(
@@ -141,10 +170,12 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     nonisolated static let dialogueGain = AudioShaping.maxDialogueGainDB / 2
 
     public func play() {
+        playsWhenOpen = true
         engine.play()
     }
 
     public func pause() {
+        playsWhenOpen = false
         engine.pause()
     }
 
@@ -184,6 +215,25 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         endRebuildHold()
         source = nil
         engine.stop()
+    }
+
+    private func enteredBackground() {
+        if source != nil { isBackgrounded = true }
+    }
+
+    /// Back from the background: opens what it let go of again at the playhead, holding the time there
+    /// meanwhile, then plays or pauses as it was last asked. A becoming active that follows no trip to
+    /// the background, such as after a system alert, has nothing to open.
+    private func becameActive() {
+        guard isBackgrounded else { return }
+        isBackgrounded = false
+        guard let opened = source else { return }
+        holdTime(at: currentTime)
+        Task { [weak self, engine] in
+            try? await engine.reloadAtCurrentPosition()
+            guard let self, source == opened else { return }
+            if playsWhenOpen { engine.play() } else { engine.pause() }
+        }
     }
 
     /// Keeps the time where playback is, `position`, while the engine rebuilds itself there.
