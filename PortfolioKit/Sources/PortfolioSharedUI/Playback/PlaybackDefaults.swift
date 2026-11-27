@@ -3,7 +3,7 @@ import PortfolioShared
 /// What a player starts on, from the profile's Settings: how fast Auto streams at most, and the languages
 /// to play audio and show subtitles in, in place of what the server would pick for the account; and
 /// whether Style is Original, as the item, or its show, played last, without which picture subtitles
-/// don't show.
+/// don't show. Also how far clicking Left and Right skips.
 public struct PlaybackDefaults: Hashable, Sendable {
     /// The most Auto streams at, in bits per second, or nil to play the file as it is wherever it can.
     public var autoMaxBitrate: Int?
@@ -14,17 +14,25 @@ public struct PlaybackDefaults: Hashable, Sendable {
     /// Whether Style is Original: subtitles as the file has them. Subtitles drawn as pictures (Blu-ray,
     /// DVD, DVB), which nothing can restyle, show only then.
     public var showsOriginalSubtitles: Bool
+    /// How far clicking Left skips back.
+    public var skipBack: Duration
+    /// How far clicking Right skips on.
+    public var skipForward: Duration
 
     public init(
         autoMaxBitrate: Int? = nil,
         audioLanguage: AudioLanguage? = nil,
         subtitleLanguage: String? = nil,
-        showsOriginalSubtitles: Bool = false
+        showsOriginalSubtitles: Bool = false,
+        skipBack: Duration = ProfilePreferences.defaultSkip,
+        skipForward: Duration = ProfilePreferences.defaultSkip
     ) {
         self.autoMaxBitrate = autoMaxBitrate
         self.audioLanguage = audioLanguage
         self.subtitleLanguage = subtitleLanguage
         self.showsOriginalSubtitles = showsOriginalSubtitles
+        self.skipBack = skipBack
+        self.skipForward = skipForward
     }
 
     /// From the profile's Settings, for `item`.
@@ -34,7 +42,9 @@ public struct PlaybackDefaults: Hashable, Sendable {
             autoMaxBitrate: preferences?.maximumStreamingBitrate,
             audioLanguage: preferences?.audioLanguage,
             subtitleLanguage: preferences?.subtitleLanguage,
-            showsOriginalSubtitles: preferences?.showsOriginalSubtitles(for: item) ?? false
+            showsOriginalSubtitles: preferences?.showsOriginalSubtitles(for: item) ?? false,
+            skipBack: preferences?.skipBack ?? ProfilePreferences.defaultSkip,
+            skipForward: preferences?.skipForward ?? ProfilePreferences.defaultSkip
         )
     }
 

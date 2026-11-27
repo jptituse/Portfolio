@@ -290,8 +290,20 @@ struct PlayerViewModelTests {
     // MARK: Controls
 
     /// A player already playing `duration` of media, from `position`.
-    func playingPlayer(duration: Duration = .seconds(7_200), at position: Duration = .seconds(65), controlsTimeout: Duration = .seconds(60)) async -> PlayerViewModel {
-        let player = PlayerViewModel(title: "Arrival", makeEngine: { engine }, source: { _ in stream }, describe: { _ in "" }, controlsTimeout: controlsTimeout)
+    func playingPlayer(
+        duration: Duration = .seconds(7_200),
+        at position: Duration = .seconds(65),
+        controlsTimeout: Duration = .seconds(60),
+        playbackDefaults: PlaybackDefaults = PlaybackDefaults()
+    ) async -> PlayerViewModel {
+        let player = PlayerViewModel(
+            title: "Arrival",
+            makeEngine: { engine },
+            source: { _ in stream },
+            describe: { _ in "" },
+            controlsTimeout: controlsTimeout,
+            playbackDefaults: playbackDefaults
+        )
         player.start()
         await waitUntil { engine.isPlaying }
         engine.duration = duration
@@ -431,24 +443,393 @@ struct PlayerViewModelTests {
         #expect(player.position == .seconds(40))
     }
 
-    @Test func cancellingScrubbingGoesBackToWherePlaybackIs() async {
-        let player = await playingPlayer(duration: .seconds(200), at: .seconds(40))
-        player.togglePlayPause()
-        player.beginScrubbing()
-        player.scrub(to: 0.9)
-
-        player.cancelScrubbing()
-
-        #expect(!player.isScrubbing)
-        #expect(player.position == .seconds(40))
-    }
-
     @Test func scrubsOnlyWhilePaused() async {
         let player = await playingPlayer()
 
         player.beginScrubbing()
 
         #expect(!player.isScrubbing)
+    }
+
+    // MARK: Clicking and holding Left and Right
+
+    /// Skips of 10 s back and 30 s on, as Settings could have them.
+    let skips = PlaybackDefaults(skipBack: .seconds(10), skipForward: .seconds(30))
+
+    @Test func clickingSkipsBySettingsSkipsAndShowsWhich() async {
+        let player = await playingPlayer(at: .seconds(65), playbackDefaults: skips)
+
+        player.click(.forward)
+        await waitUntil { engine.currentTime == .seconds(95) }
+        #expect(engine.currentTime == .seconds(95))
+        #expect(engine.status == .playing)
+        #expect(player.showsControls)
+        #expect(player.skipHint == PlayerViewModel.SkipHint(direction: .forward, seconds: 30))
+
+        player.click(.back)
+        await waitUntil { engine.currentTime == .seconds(85) }
+        #expect(engine.currentTime == .seconds(85))
+        #expect(player.skipHint == PlayerViewModel.SkipHint(direction: .back, seconds: 10))
+
+        // Until a moment after playback gets there.
+        await waitUntil { player.skipHint == nil }
+        #expect(player.skipHint == nil)
+    }
+
+    @Test func clicksOneAfterAnotherAddUp() async {
+        let player = await playingPlayer(at: .seconds(65), playbackDefaults: skips)
+
+        player.click(.forward)
+        player.click(.forward)
+
+        await waitUntil { engine.currentTime == .seconds(125) }
+        #expect(engine.currentTime == .seconds(125))
+    }
+
+    @Test func skipsWithinTheMedia() async {
+        let player = await playingPlayer(duration: .seconds(200), at: .seconds(190), playbackDefaults: skips)
+        player.click(.forward)
+        await waitUntil { engine.currentTime == .seconds(200) }
+        #expect(engine.currentTime == .seconds(200))
+
+        engine.currentTime = .seconds(5)
+        player.click(.back)
+        await waitUntil { engine.currentTime == .zero }
+        #expect(engine.currentTime == .zero)
+    }
+
+    @Test func pausedWithTheControlsUpAClickMovesTheSpot() async {
+        let player = await playingPlayer(at: .seconds(40), playbackDefaults: skips)
+        player.togglePlayPause()
+
+        player.click(.forward)
+        #expect(player.isScrubbing)
+        #expect(player.position == .seconds(50))
+        player.click(.back)
+        player.click(.back)
+        #expect(player.position == .seconds(30))
+        // Playback stays where it was until the spot's picked, and the way the spot went shows.
+        #expect(engine.currentTime == .seconds(40))
+        #expect(player.skipHint == PlayerViewModel.SkipHint(direction: .back, seconds: 10))
+
+        player.togglePlayPause()
+        await waitUntil { engine.currentTime == .seconds(30) }
+        #expect(engine.currentTime == .seconds(30))
+        #expect(engine.status == .playing)
+    }
+
+    @Test func pausedWithTheControlsHiddenAClickSkips() async {
+        let player = await playingPlayer(at: .seconds(40), playbackDefaults: skips)
+        player.togglePlayPause()
+        player.hideControls()
+
+        player.click(.forward)
+
+        await waitUntil { engine.currentTime == .seconds(70) }
+        #expect(engine.currentTime == .seconds(70))
+        #expect(player.isPaused)
+        #expect(engine.status == .paused)
+        #expect(!player.isScrubbing)
+        #expect(player.showsControls)
+    }
+
+    @Test func scrubbingAClickMovesTheSpotWithinTheMedia() async {
+        let player = await playingPlayer(duration: .seconds(200), at: .seconds(5))
+        player.togglePlayPause()
+        player.beginScrubbing()
+
+        player.click(.back)
+        #expect(player.position == .zero)
+
+        player.scrub(to: 0.99)
+        player.click(.forward)
+        #expect(player.position == .seconds(200))
+    }
+
+    @Test func holdingPausesAndSetsTheNeedleMoving() async {
+        let player = await playingPlayer(at: .seconds(100))
+
+        player.hold(.forward)
+
+        #expect(player.isPaused)
+        #expect(engine.status == .paused)
+        #expect(player.isScrubbing)
+        #expect(player.drive?.rate == 8)
+        #expect(player.drive?.speed == 1)
+        let started = ContinuousClock.now
+        await waitUntil { player.position >= .seconds(102) }
+        let elapsed = (ContinuousClock.now - started) / .seconds(1)
+        // 8 seconds of the media a second, while playback stays put.
+        #expect(player.position >= .seconds(102))
+        #expect(player.position <= .seconds(100 + 8 * elapsed + 0.5))
+        #expect(engine.currentTime == .seconds(100))
+    }
+
+    @Test func holdingBackMovesTheNeedleBack() async {
+        let player = await playingPlayer(at: .seconds(100))
+
+        player.hold(.back)
+
+        #expect(player.drive?.rate == -8)
+        #expect(player.drive?.direction == .back)
+        await waitUntil { player.position <= .seconds(98) }
+        #expect(player.position <= .seconds(98))
+    }
+
+    @Test func aClickWhileTheNeedleMovesChangesItsSpeed() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.hold(.forward)
+
+        var rates: [Double?] = []
+        for _ in 0..<4 {
+            player.click(.forward)
+            rates.append(player.drive?.rate)
+        }
+        #expect(rates == [24, 48, 96, 96])
+        #expect(player.drive?.speed == 4)
+
+        rates = []
+        for _ in 0..<4 {
+            player.click(.back)
+            rates.append(player.drive?.rate)
+        }
+        // Slower, then past the slowest to the slowest the other way.
+        #expect(rates == [48, 24, 8, -8])
+        #expect(player.drive?.speed == 1)
+    }
+
+    @Test func holdingWhileTheNeedleMovesIsAClick() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.hold(.forward)
+
+        player.hold(.forward)
+
+        #expect(player.drive?.rate == 24)
+    }
+
+    @Test func selectPlaysFromWhereTheNeedleGot() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.hold(.forward)
+        await waitUntil { player.position >= .seconds(101) }
+
+        player.togglePlayPause()
+        let spot = player.position
+
+        #expect(player.drive == nil)
+        #expect(!player.isScrubbing)
+        #expect(spot >= .seconds(101))
+        await waitUntil { engine.currentTime == spot }
+        #expect(engine.currentTime == spot)
+        #expect(engine.status == .playing)
+    }
+
+    @Test func aSwipeTakesOverFromTheNeedle() async throws {
+        let player = await playingPlayer(at: .seconds(100))
+        player.hold(.forward)
+        await waitUntil { player.position >= .seconds(101) }
+
+        player.beginScrubbing()
+        let spot = player.position
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(player.drive == nil)
+        #expect(player.isScrubbing)
+        #expect(player.position == spot)
+    }
+
+    @Test func theNeedleStopsAtAnEnd() async {
+        let player = await playingPlayer(duration: .seconds(200), at: .seconds(199))
+
+        player.hold(.forward)
+
+        await waitUntil { player.drive == nil }
+        #expect(player.drive == nil)
+        #expect(player.isScrubbing)
+        #expect(player.position == .seconds(200))
+    }
+
+    @Test func showsTheNeedlesSpeedTheSkipOrThePauseBesideTheTime() async {
+        typealias Badge = PlayerViewModel.TimeBadge
+        let player = await playingPlayer(at: .seconds(65), playbackDefaults: skips)
+        #expect(player.timeBadge(isInteracting: false) == nil)
+
+        player.click(.forward)
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .skip, symbol: "goforward.30", number: nil, side: .trailing))
+        // Going back, it's before the time.
+        player.click(.back)
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .skip, symbol: "gobackward.10", number: nil, side: .leading))
+        await waitUntil { player.skipHint == nil }
+
+        player.togglePlayPause()
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .pause, symbol: "pause.circle", number: nil, side: .trailing))
+        #expect(player.timeBadge(isInteracting: true) == nil)
+
+        // Paused, a click moves the spot, and shows how far.
+        player.click(.forward)
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .skip, symbol: "goforward.10", number: nil, side: .trailing))
+        await waitUntil { player.skipHint == nil }
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .pause, symbol: "pause.circle", number: nil, side: .trailing))
+
+        player.hold(.back)
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .drive, symbol: "backward.circle", number: nil, side: .leading))
+        player.click(.back)
+        #expect(player.timeBadge(isInteracting: false) == Badge(kind: .drive, symbol: "backward.circle", number: "2", side: .leading))
+    }
+
+    // MARK: The server's pictures of the spot
+
+    /// A player of Arrival, 2,500 seconds long, from a server with 250 trickplay pictures of it 10 seconds
+    /// apart, 4 by 2 pixels each, so a tile of 10 by 10 is 40 by 20. The server stays up while the
+    /// test holds it.
+    func playerWithTrickplay() async throws -> (PlayerViewModel, MockJellyfinServer) {
+        var arrival = MockJellyfinServer.Item(name: "Arrival")
+        arrival.trickplay = [.init(width: 4, height: 2, count: 250)]
+        let mock = MockJellyfinServer(items: [arrival], imageData: MockJellyfinServer.samplePNG(width: 40, height: 20))
+        let client = JellyfinServerClient.mocked
+        let session = try await client.signIn(to: try await client.validateServer(at: mock.url), username: "alex", password: "hunter2")
+        let item = MediaItem(id: arrival.id, name: "Arrival", kind: .movie)
+        let player = PlayerViewModel(
+            title: "Arrival",
+            makeEngine: { engine },
+            source: { _ in stream },
+            describe: { _ in "" },
+            trickplay: { _ in try? await client.trickplay(for: item, versionID: arrival.id, pixelWidth: 4, session: session) },
+            pipeline: ImagePipeline(configuration: MockJellyfinServer.sessionConfiguration)
+        )
+        player.start()
+        await waitUntil { engine.isPlaying }
+        engine.duration = .seconds(2_500)
+        engine.currentTime = .seconds(65)
+        await waitUntil { player.trickplay != nil && player.position == .seconds(65) }
+        return (player, mock)
+    }
+
+    @Test func showsTheServersPictureOfTheSpotWhileScrubbing() async throws {
+        let (player, server) = try await playerWithTrickplay()
+        defer { withExtendedLifetime(server) {} }
+        #expect(player.trickplay?.count == 250)
+        #expect(player.scrubPreview == nil)
+
+        player.togglePlayPause()
+        player.click(.forward)
+        await waitUntil { player.scrubPreview != nil }
+        let first = try #require(player.scrubPreview)
+        #expect(first.width == 4)
+        #expect(first.height == 2)
+
+        // Another picture, from the same tile, shows at once.
+        player.click(.forward)
+        #expect(player.scrubPreview !== first)
+        #expect(player.scrubPreview?.width == 4)
+
+        player.resume()
+        #expect(player.scrubPreview == nil)
+    }
+
+    @Test func showsNoPictureWhereTheServerHasNone() async {
+        let player = await playingPlayer(at: .seconds(65))
+
+        player.togglePlayPause()
+        player.click(.forward)
+
+        #expect(player.isScrubbing)
+        #expect(player.trickplay == nil)
+        #expect(player.scrubPreview == nil)
+    }
+
+    @Test func menuWhilePausedPlaysFromWherePlaybackPaused() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.togglePlayPause()
+        player.click(.forward)
+        player.click(.forward)
+
+        player.resume()
+
+        // The spot picked isn't played from.
+        #expect(!player.isScrubbing)
+        #expect(!player.isPaused)
+        #expect(engine.status == .playing)
+        #expect(engine.currentTime == .seconds(100))
+        #expect(player.position == .seconds(100))
+    }
+
+    @Test func menuWhileTheNeedleMovesPlaysFromWherePlaybackPaused() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.hold(.forward)
+        await waitUntil { player.position >= .seconds(101) }
+
+        player.resume()
+
+        #expect(player.drive == nil)
+        #expect(!player.isScrubbing)
+        #expect(engine.status == .playing)
+        #expect(engine.currentTime == .seconds(100))
+    }
+
+    @Test func saysWhenItsJustBeenPausedWithNothingDoneSince() async {
+        let player = await playingPlayer(at: .seconds(100))
+        #expect(!player.isPausedUntouched)
+
+        player.togglePlayPause()
+        #expect(player.isPausedUntouched)
+        player.togglePlayPause()
+        #expect(!player.isPausedUntouched)
+
+        // Anything done since: a click, a hold, a swipe, or focus on the menus.
+        let actions: [(PlayerViewModel) -> Void] = [
+            { $0.click(.forward) },
+            { $0.hold(.back) },
+            { $0.beginScrubbing() },
+            { $0.holdControls(true) },
+        ]
+        for action in actions {
+            if !player.isPaused { player.togglePlayPause() }
+            player.resume()
+            player.togglePlayPause()
+            #expect(player.isPausedUntouched)
+            action(player)
+            #expect(!player.isPausedUntouched)
+            player.holdControls(false)
+        }
+    }
+
+    @Test func menuWhileScrubbingPutsTheSpotBackStillPaused() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.togglePlayPause()
+        player.click(.forward)
+        player.hold(.forward)
+
+        player.cancelScrubbing()
+
+        #expect(!player.isScrubbing)
+        #expect(player.drive == nil)
+        #expect(player.isPaused)
+        #expect(player.position == .seconds(100))
+        // Something's been done since pausing: Menu again plays on, rather than leaving.
+        #expect(!player.isPausedUntouched)
+    }
+
+    @Test func pausesWhenTheAppGoesToTheBackground() async {
+        let player = await playingPlayer(at: .seconds(100))
+        player.hideControls()
+
+        player.enteredBackground()
+
+        #expect(player.isPaused)
+        #expect(player.isPausedUntouched)
+        #expect(engine.status == .paused)
+        #expect(player.showsControls)
+    }
+
+    @Test func clicksAndHoldsWaitForTheMedia() {
+        let player = PlayerViewModel(title: "Arrival", makeEngine: { engine }, source: { _ in stream }, describe: { _ in "" })
+
+        player.click(.forward)
+        player.hold(.forward)
+
+        #expect(!player.isScrubbing)
+        #expect(player.drive == nil)
+        #expect(player.skipHint == nil)
     }
 
     @Test func labelsTheTimeAsTheSystemsPlayerDoes() async {
