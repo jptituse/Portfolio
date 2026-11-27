@@ -76,6 +76,8 @@ public final class MockJellyfinServer: Sendable {
         public var studios: [String] = []
         /// The items the server finds like it, by their identifiers, most alike first.
         public var similar: [String] = []
+        /// The trickplay pictures the server has made of its default version, at each width.
+        public var trickplay: [TrickplaySize] = []
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -94,6 +96,23 @@ public final class MockJellyfinServer: Sendable {
             self.primaryImageAspectRatio = primaryImageAspectRatio
             self.libraryID = libraryID
             self.genres = genres
+        }
+    }
+
+    /// Trickplay pictures of an item at one width, as Jellyfin describes them: each picture's size, how
+    /// many across and down each tile, how many in all, and how many milliseconds apart.
+    public struct TrickplaySize: Sendable {
+        public var width: Int
+        public var height: Int
+        public var tileWidth = 10
+        public var tileHeight = 10
+        public var count: Int
+        public var interval = 10_000
+
+        public init(width: Int, height: Int, count: Int) {
+            self.width = width
+            self.height = height
+            self.count = count
         }
     }
 
@@ -455,6 +474,10 @@ public final class MockJellyfinServer: Sendable {
                 .sorted { ($0.seasonNumber ?? 0, $0.episodeNumber ?? 0) < ($1.seasonNumber ?? 0, $1.episodeNumber ?? 0) }
             // With their files, as asked.
             return Response(status: 200, json: ["Items": episodes.map(detailsJSON), "TotalRecordCount": episodes.count] as [String: Any])
+        case ("GET", let path) where path.hasPrefix("/Videos/") && path.contains("/Trickplay/"):
+            // Trickplay tiles need the user signed in, unlike images.
+            guard account(for: request) != nil else { return Response(status: 401) }
+            return hasTrickplayTile(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
         case ("GET", let path) where path.hasPrefix("/Items/"):
             // Images need no sign-in, as on a real server.
             return hasImage(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
@@ -594,6 +617,14 @@ public final class MockJellyfinServer: Sendable {
             return json
         }
         json["Studios"] = item.studios.enumerated().map { ["Name": $1, "Id": "studio-\($0)"] }
+        if !item.trickplay.isEmpty {
+            json["Trickplay"] = [item.id: Dictionary(uniqueKeysWithValues: item.trickplay.map { size in
+                ("\(size.width)", [
+                    "Width": size.width, "Height": size.height, "TileWidth": size.tileWidth, "TileHeight": size.tileHeight,
+                    "ThumbnailCount": size.count, "Interval": size.interval, "Bandwidth": 0,
+                ] as [String: Any])
+            })]
+        }
         json["MediaSources"] = [[
             "Id": item.id, "Container": "mkv", "Bitrate": item.bitrate,
             "MediaStreams": item.streams.map { stream in
@@ -625,6 +656,18 @@ public final class MockJellyfinServer: Sendable {
 
     /// Whether `/Items/{id}/Images/{type}` or `/Items/{id}/Images/Backdrop/{index}` is an image the
     /// server has.
+    /// Whether `/Videos/{id}/Trickplay/{width}/{index}.jpg` is a tile the item has.
+    private func hasTrickplayTile(at path: String) -> Bool {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 5, let item = items.first(where: { $0.id == parts[1] }),
+            let size = item.trickplay.first(where: { "\($0.width)" == parts[3] }),
+            let index = Int(parts[4].replacingOccurrences(of: ".jpg", with: "")) else {
+            return false
+        }
+        let onEachTile = size.tileWidth * size.tileHeight
+        return index >= 0 && index * onEachTile < size.count
+    }
+
     private func hasImage(at path: String) -> Bool {
         let parts = path.split(separator: "/").map(String.init)
         guard parts.count >= 4, parts[2] == "Images", let item = items.first(where: { $0.id == parts[1] }) else {

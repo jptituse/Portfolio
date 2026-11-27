@@ -314,9 +314,17 @@ public final class CurrentProfileViewModel {
                 }
             },
             playbackDefaults: defaults,
-            rememberOriginalSubtitles: { [preferences] in preferences?.setShowsOriginalSubtitles($0, for: item) }
+            rememberOriginalSubtitles: { [preferences] in preferences?.setShowsOriginalSubtitles($0, for: item) },
+            trickplay: { [client] source in
+                guard let session else { return nil }
+                return try? await client.trickplay(for: item, versionID: source.versionID, pixelWidth: Self.trickplayWidth, session: session)
+            }
         )
     }
+
+    /// How wide, in pixels, the server's pictures for the player's scrubbing preview are best: as the
+    /// preview is drawn on a 4K TV, 400 points at 2 pixels each.
+    nonisolated static let trickplayWidth = 800
 
     /// The source found ahead of time for an item, if it's still fresh: used once, since each playback
     /// is a play session of its own.

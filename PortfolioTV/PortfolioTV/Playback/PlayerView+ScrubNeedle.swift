@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 
 extension PlayerView {
@@ -13,12 +14,16 @@ extension PlayerView {
     /// it to a stop within about a second. A new touch slows it at once. Moving slowly toward where
     /// playback is, it catches there, and stays until the swipe has moved on a little.
     ///
-    /// The system's needle rubber-bands at the bar's ends; this one stops at them.
+    /// At the bar's ends it stops, and pushed on there, by a finger or a coast, the bar stretches past
+    /// that end after it (`onRubberBand`), as the system's does (`_updateRubberBanding`), until a moment
+    /// after the push ends.
     final class ScrubNeedle: NSObject, UIDynamicAnimatorDelegate {
         /// Reports where the needle is, from 0 to 1 along the bar, each time it moves.
         var onMoved: (_ fraction: Double) -> Void = { _ in }
         /// Reports whether a finger is moving it, or it's still moving since one let go.
         var onInteractingChanged: (_ isInteracting: Bool) -> Void = { _ in }
+        /// Reports the end the bar stretches past, pushed on there, and nil once it lets go.
+        var onRubberBand: (_ end: HorizontalEdge?) -> Void = { _ in }
         /// Where playback is, from 0 to 1, for the needle to catch on.
         var marker: Double = 0
 
@@ -37,6 +42,8 @@ extension PlayerView {
         private var caughtTravel: CGFloat = 0
         private var resting: Task<Void, Never>?
         private var stoppingAtAnEnd = false
+        /// Lets go of the end the bar stretches past, a moment after the push ends.
+        private var rubberBanding: Task<Void, Never>?
 
         override init() {
             body = UIDynamicItemBehavior(items: [item])
@@ -93,6 +100,12 @@ extension PlayerView {
             }
             let distance = translation * Self.gain(atSpeed: speed)
             let anchor = attachment.anchorPoint.x
+            // Pushed on at an end: the bar stretches past it while the finger pushes.
+            if distance < 0, item.center.x <= lowest + Metrics.atEnd {
+                rubberBand(.leading, lettingGoAfter: Metrics.touchingRelease)
+            } else if distance > 0, item.center.x >= highest - Metrics.atEnd {
+                rubberBand(.trailing, lettingGoAfter: Metrics.touchingRelease)
+            }
             let moved = min(max(anchor + distance, lowest), highest)
             let markerX = x(for: marker)
             let from = abs(anchor - markerX), to = abs(moved - markerX)
@@ -133,6 +146,11 @@ extension PlayerView {
         /// Scrubbing's over: the needle stops where it is.
         func stop() {
             resting?.cancel()
+            if rubberBanding != nil {
+                rubberBanding?.cancel()
+                rubberBanding = nil
+                onRubberBand(nil)
+            }
             if let attachment { animator.removeBehavior(attachment) }
             attachment = nil
             halt()
@@ -176,6 +194,7 @@ extension PlayerView {
             // Past an end, it stops there, once UIKit Dynamics has finished moving it.
             if attachment == nil, item.center.x < lowest || item.center.x > highest, !stoppingAtAnEnd {
                 stoppingAtAnEnd = true
+                rubberBand(item.center.x < lowest ? .leading : .trailing, lettingGoAfter: Metrics.coastingRelease)
                 Task { [weak self] in self?.stopAtAnEnd() }
             }
             onMoved(fraction)
@@ -187,6 +206,18 @@ extension PlayerView {
             halt()
             item.center.x = min(max(item.center.x, lowest), highest)
             animator.updateItem(usingCurrentState: item)
+        }
+
+        /// The bar stretches past `end`, until `delay` after the last push.
+        private func rubberBand(_ end: HorizontalEdge, lettingGoAfter delay: Duration) {
+            if rubberBanding == nil { onRubberBand(end) }
+            rubberBanding?.cancel()
+            rubberBanding = Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard let self, !Task.isCancelled else { return }
+                rubberBanding = nil
+                onRubberBand(nil)
+            }
         }
 
         private func updateInteracting() {
@@ -231,6 +262,13 @@ extension PlayerView {
             static let atMarker: CGFloat = 0.01
             /// A finger resting this long has let go of the needle.
             static let restingDelay = Duration.seconds(1)
+            /// How near an end counts as there, for pushing on to stretch the bar.
+            static let atEnd: CGFloat = 1
+            /// How long the bar stays stretched after a finger's last push, and after a coast reaches an
+            /// end: half the settling time of its spring (`PlayerControlsView.Metrics.rubberBanding`),
+            /// 0.44 s.
+            static let touchingRelease = Duration.milliseconds(100)
+            static let coastingRelease = Duration.milliseconds(220)
         }
     }
 

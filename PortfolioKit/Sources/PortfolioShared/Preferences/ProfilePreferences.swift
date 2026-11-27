@@ -8,8 +8,8 @@ import Observation
 /// **How an item played last** is kept for its group, an episode's show, so changing it for one of the
 /// group's items changes it for them all. A movie, in no group, keeps its own.
 ///
-/// Some are kept before what reads them is built: the streaming quality, languages, skip times and
-/// buttons are read by the player once it does each.
+/// Some are kept before what reads them is built: the skip buttons are read by the player once it shows
+/// them.
 @MainActor
 @Observable
 public final class ProfilePreferences {
@@ -107,7 +107,7 @@ public final class ProfilePreferences {
     }
 
     /// How far a click skips unless it's been chosen otherwise.
-    public static let defaultSkip = Duration.seconds(30)
+    public nonisolated static let defaultSkip = Duration.seconds(30)
 
     /// Whether `item`'s subtitles show as the file has them (Style's Original): as it, or its group, played
     /// last, else not.
