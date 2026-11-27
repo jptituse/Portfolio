@@ -364,15 +364,17 @@ final class AppNavigationUITests: XCTestCase {
             XCTAssertTrue(fullScreenDetail.waitForExistence(timeout: 5), "Down didn't expand the platter in \(tab)")
             XCTAssertTrue(app.staticTexts["Sample Movie 2"].exists)
 
-            // Information pushes plain detail views on top. Every platter shows the actions too, so this
-            // is the full-screen card's.
+            // Information opens the item's page below the card. Every platter shows the actions too, so
+            // this is the full-screen card's.
             focus(fullScreenDetail.buttons["Information"], moving: .right, orElse: .down)
             press(.select)
-            XCTAssertTrue(app.staticTexts["Detail view 1"].waitForExistence(timeout: 5), "Couldn't go deeper in \(tab)")
+            XCTAssertTrue(detailPage.waitForExistence(timeout: 5), "Information didn't open the item's page in \(tab)")
 
-            // Menu steps back: deeper view, full detail, preview, poster.
+            // Menu steps back: the page scrolls back up to the card, then the full detail, the preview
+            // and the poster.
             press(.menu)
-            XCTAssertTrue(fullScreenDetail.waitForExistence(timeout: 5), "Menu didn't return to the full detail in \(tab)")
+            XCTAssertTrue(detailPage.waitForNonExistence(timeout: 5), "Menu didn't go back up to the card in \(tab)")
+            XCTAssertTrue(fullScreenDetail.exists, "The card wasn't there under its page in \(tab)")
             press(.menu)
             XCTAssertTrue(fullScreenDetail.waitForNonExistence(timeout: 5), "Menu didn't shrink the full detail in \(tab)")
             XCTAssertTrue(waitForFocus(platter("Sample Movie 2")), "The preview lost its place in \(tab)")
@@ -455,6 +457,11 @@ final class AppNavigationUITests: XCTestCase {
         focus(sampleSession, moving: .down)
         press(.select)
         XCTAssertTrue(homeRetry.waitForExistence(timeout: 10), "The signed-in app didn't appear")
+    }
+
+    /// An item's page, below its full-screen card.
+    private var detailPage: XCUIElement {
+        app.descendants(matching: .any)["detail.page"]
     }
 
     /// Home's Try Again button. The sample session's server doesn't exist, so Home says it can't reach

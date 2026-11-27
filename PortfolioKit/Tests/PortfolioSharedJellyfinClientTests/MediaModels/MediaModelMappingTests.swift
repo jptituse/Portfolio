@@ -16,6 +16,8 @@ struct MediaModelMappingTests {
         #expect(item.productionYear == 2016)
         #expect(item.runtime == .seconds(6978))
         #expect(item.officialRating == "PG-13")
+        #expect(item.criticRating == 94)
+        #expect(item.dateAdded == Date(timeIntervalSince1970: 1_761_848_561))
         #expect(abs((item.communityRating ?? 0) - 7.9) < 0.001)
         #expect(item.genres == ["Drama", "Science Fiction"])
         #expect(item.images == [.primary: "p-4f1c", .logo: "l-9a2e", .thumb: "t-77b0", .backdrop(): "b-0d13", .backdrop(index: 1): "b-58aa"])
@@ -31,8 +33,10 @@ struct MediaModelMappingTests {
         #expect(item.episode?.seriesName == "Andor")
         #expect(item.episode?.seriesID == "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a")
         #expect(item.episode?.seasonNumber == 1)
+        #expect(item.episode?.seasonName == "Season 1")
         #expect(item.episode?.episodeNumber == 5)
         #expect(item.runtime == .seconds(3120))
+        #expect(item.premiereDate == Date(timeIntervalSince1970: 1_664_841_600))
     }
 
     @Test func keepsAnEpisodesOwnArtworkAndTheShowsItShows() throws {

@@ -25,6 +25,11 @@ final class RelatedMediaGroupViewModel: Identifiable {
     /// grows into. A scroll view can't scroll into width that's still animating in, so without it the
     /// last poster would run off the screen instead of pushing the others aside.
     private(set) var isMakingRoomToExtend = false
+    /// How many of the row's posters are drawn, from its start: `postersDrawnAhead` past the furthest
+    /// one focus has reached. The rest are space of their size, so the row lays out just as it would.
+    /// Each poster drawn cost SwiftUI work on every frame Home scrolled, and a Home of rows of 16 kept an
+    /// Apple TV's main thread busy for most of a second each time focus moved between rows.
+    private(set) var drawnPosterCount = RelatedMediaGroupPosterView.Metrics.postersDrawnAhead
 
     @ObservationIgnored private var cards: [MediaItem.ID: MediaCardViewModel] = [:]
     /// Where each poster is, in global coordinates, so the open cards can start and end exactly on top
@@ -112,11 +117,17 @@ final class RelatedMediaGroupViewModel: Identifiable {
         globalPosterFrames[item] = globalFrame
     }
 
+    /// Whether the poster at `index` is drawn, rather than space of its size.
+    func isDrawn(_ index: Int) -> Bool {
+        index < drawnPosterCount
+    }
+
     // MARK: Focus
 
     /// A poster got focus: it's now the highlighted card, and it widens if focus stays on it.
     func posterFocused(_ item: MediaItem.ID) {
         idleTimer?.cancel()
+        drawPosters(beyond: item)
         withAnimation(RelatedMediaGroupPosterView.Metrics.extend) { moveHighlight(to: item) }
         if !isInProgress, highlightedCard?.isExtended != true { startIdleTimer(for: item) }
         warmLandscapeArtwork(around: item)
@@ -160,6 +171,7 @@ final class RelatedMediaGroupViewModel: Identifiable {
     func willOpen(on item: MediaItem.ID) {
         idleTimer?.cancel()
         isMakingRoomToExtend = false
+        drawPosters(beyond: item)
         moveHighlight(to: item)
         startsLifted = true
     }
@@ -171,6 +183,8 @@ final class RelatedMediaGroupViewModel: Identifiable {
 
     /// Makes another platter the highlighted card, moving the wide poster along with it.
     func highlightPlatter(_ item: MediaItem.ID) {
+        // The row closes back onto its poster, and onto the posters in view around it.
+        drawPosters(beyond: item)
         moveHighlight(to: item)
         extendHighlightedPoster()
         warmLandscapeArtwork(around: item)
@@ -238,6 +252,14 @@ final class RelatedMediaGroupViewModel: Identifiable {
         for card in cards.values where !warm.contains(card.item.id) {
             card.isWarm = false
         }
+    }
+
+    /// Draws the posters up to `postersDrawnAhead` past `item`, if they aren't already: before the row
+    /// can scroll them into view.
+    private func drawPosters(beyond item: MediaItem.ID) {
+        guard let index = group.items.firstIndex(where: { $0.id == item }) else { return }
+        let count = index + 1 + RelatedMediaGroupPosterView.Metrics.postersDrawnAhead
+        if count > drawnPosterCount { drawnPosterCount = count }
     }
 
     private func moveHighlight(to item: MediaItem.ID?) {

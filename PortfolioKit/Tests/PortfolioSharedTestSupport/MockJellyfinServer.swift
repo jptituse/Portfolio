@@ -48,11 +48,16 @@ public final class MockJellyfinServer: Sendable {
         public var watchedMinutes = 0
         /// When the user last started playing it.
         public var lastPlayed: Date?
+        /// Whether the user has watched it to the end.
+        public var isPlayed = false
+        /// Where it is, as Jellyfin says, such as `FileSystem` or `Virtual`, if the server says.
+        public var locationType: String?
         /// Whether it's the next episode of a show the user is watching.
         public var isNextUp = false
         public var seriesName: String?
         public var seriesID: String?
         public var seasonNumber: Int?
+        public var seasonName: String?
         public var episodeNumber: Int?
         /// Whether the server would send its default version as it is to a client that plays it.
         public var isDirectlyPlayable = true
@@ -66,6 +71,11 @@ public final class MockJellyfinServer: Sendable {
         public var defaultSubtitleStream: Int?
         /// Its default version's bitrate, in bits per second.
         public var bitrate = 20_000_000
+        /// Its cast and crew, in order.
+        public var people: [Person] = []
+        public var studios: [String] = []
+        /// The items the server finds like it, by their identifiers, most alike first.
+        public var similar: [String] = []
         public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
 
         public init(
@@ -84,6 +94,24 @@ public final class MockJellyfinServer: Sendable {
             self.primaryImageAspectRatio = primaryImageAspectRatio
             self.libraryID = libraryID
             self.genres = genres
+        }
+    }
+
+    /// Someone credited on an item.
+    public struct Person: Sendable {
+        public var name: String
+        /// The Jellyfin person type, such as `Actor` or `Director`.
+        public var type: String
+        /// The character an actor plays, or a crew member's job.
+        public var role: String?
+        public var imageTag: String?
+        public var id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+
+        public init(name: String, type: String = "Actor", role: String? = nil, imageTag: String? = nil) {
+            self.name = name
+            self.type = type
+            self.role = role
+            self.imageTag = imageTag
         }
     }
 
@@ -410,6 +438,23 @@ public final class MockJellyfinServer: Sendable {
                 stoppedSessions.withLock { $0.append(session) }
             }
             return Response(status: 204)
+        case ("GET", let path) where path.hasPrefix("/Items/") && path.split(separator: "/").count == 2:
+            guard account(for: request) != nil else { return Response(status: 401) }
+            guard let item = items.first(where: { $0.id == path.split(separator: "/")[1] }) else { return Response(status: 404) }
+            return Response(status: 200, json: detailsJSON(item))
+        case ("GET", let path) where path.hasPrefix("/Items/") && path.hasSuffix("/Similar"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            guard let item = items.first(where: { $0.id == path.split(separator: "/")[1] }) else { return Response(status: 404) }
+            let similar = item.similar.compactMap { id in items.first { $0.id == id } }
+            return Response(status: 200, json: ["Items": similar.map(itemJSON), "TotalRecordCount": similar.count] as [String: Any])
+        case ("GET", let path) where path.hasPrefix("/Shows/") && path.hasSuffix("/Episodes"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            let show = path.split(separator: "/")[1]
+            // Season by season, as the server orders them.
+            let episodes = items.filter { $0.type == "Episode" && $0.seriesID == String(show) }
+                .sorted { ($0.seasonNumber ?? 0, $0.episodeNumber ?? 0) < ($1.seasonNumber ?? 0, $1.episodeNumber ?? 0) }
+            // With their files, as asked.
+            return Response(status: 200, json: ["Items": episodes.map(detailsJSON), "TotalRecordCount": episodes.count] as [String: Any])
         case ("GET", let path) where path.hasPrefix("/Items/"):
             // Images need no sign-in, as on a real server.
             return hasImage(at: path) ? Response(status: 200, image: imageData) : Response(status: 404)
@@ -492,8 +537,10 @@ public final class MockJellyfinServer: Sendable {
         let parent = query.first { $0.name == "parentId" }?.value
         let types = query.filter { $0.name == "includeItemTypes" }.compactMap(\.value)
         let genres = query.filter { $0.name == "genreIds" }.compactMap(\.value)
+        let ids = query.filter { $0.name == "ids" }.compactMap(\.value).flatMap { $0.split(separator: ",").map(String.init) }
         return items.filter { item in
-            (parent == nil || item.libraryID == parent)
+            (ids.isEmpty || ids.contains(item.id))
+                && (parent == nil || item.libraryID == parent)
                 && (types.isEmpty || types.contains(item.type))
                 && (genres.isEmpty || item.genres.contains { genres.contains(Self.genreID($0)) })
         }
@@ -530,14 +577,42 @@ public final class MockJellyfinServer: Sendable {
         json["SeriesName"] = item.seriesName
         json["SeriesId"] = item.seriesID
         json["ParentIndexNumber"] = item.seasonNumber
+        json["SeasonName"] = item.seasonName
+        json["LocationType"] = item.locationType
         json["IndexNumber"] = item.episodeNumber
+        return json
+    }
+
+    /// The item as `/Items/{id}` sends it: everything a card has, with its people, studios and first
+    /// version's file.
+    private func detailsJSON(_ item: Item) -> [String: Any] {
+        var json = itemJSON(item)
+        json["People"] = item.people.map { person in
+            var json: [String: Any] = ["Name": person.name, "Id": person.id, "Type": person.type]
+            json["Role"] = person.role
+            json["PrimaryImageTag"] = person.imageTag
+            return json
+        }
+        json["Studios"] = item.studios.enumerated().map { ["Name": $1, "Id": "studio-\($0)"] }
+        json["MediaSources"] = [[
+            "Id": item.id, "Container": "mkv", "Bitrate": item.bitrate,
+            "MediaStreams": item.streams.map { stream in
+                var json: [String: Any] = [
+                    "Index": stream.index, "Type": stream.kind.rawValue, "DisplayTitle": stream.title, "Codec": stream.codec,
+                    "IsDefault": stream.isDefault, "IsExternal": stream.isExternal,
+                ]
+                json["Language"] = stream.language
+                if stream.kind == .subtitle { json["IsTextSubtitleStream"] = stream.isText }
+                return json
+            },
+        ] as [String: Any]]
         return json
     }
 
     private func userDataJSON(_ item: Item) -> [String: Any] {
         var json: [String: Any] = [
             "PlaybackPositionTicks": item.watchedMinutes * Self.ticksPerMinute,
-            "Played": false,
+            "Played": item.isPlayed,
             "Key": item.id,
             "ItemId": item.id,
         ]

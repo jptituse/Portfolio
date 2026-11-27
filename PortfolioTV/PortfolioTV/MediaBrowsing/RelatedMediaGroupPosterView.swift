@@ -19,11 +19,18 @@ struct RelatedMediaGroupPosterView: View {
             ScrollViewReader { scroller in
                 ScrollView(.horizontal) {
                     // Not lazy: a lazy stack estimates where the posters it isn't drawing are from the ones
-                    // it has measured. A wide poster throws that off, and the whole row jumps.
+                    // it has measured. A wide poster throws that off, and the whole row jumps. Posters
+                    // past those drawn are space of their own size instead, so the row lays out exactly.
                     HStack(spacing: Metrics.posterSpacing) {
-                        ForEach(viewModel.group.items) { item in
-                            poster(for: item)
-                                .id(item.id)
+                        ForEach(Array(viewModel.group.items.enumerated()), id: \.element.id) { index, item in
+                            Group {
+                                if viewModel.isDrawn(index) {
+                                    poster(for: item)
+                                } else {
+                                    standIn(for: item)
+                                }
+                            }
+                            .id(item.id)
                         }
                     }
                     .padding(.trailing, viewModel.isMakingRoomToExtend ? viewModel.extensionRoom : 0)
@@ -69,5 +76,13 @@ struct RelatedMediaGroupPosterView: View {
         .focused(focus, equals: .poster(item.id, group: viewModel.id))
         .accessibilityIdentifier("browse.poster")
         .accessibilityLabel(item.name)
+    }
+
+    /// Where a poster beyond those drawn goes, until focus comes near it: space of its size, so the row
+    /// lays out just as it would.
+    private func standIn(for item: MediaItem) -> some View {
+        let size = viewModel.posterSize(of: viewModel.card(for: item))
+        return Color.clear
+            .frame(width: size.width, height: size.height)
     }
 }

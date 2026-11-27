@@ -1,0 +1,55 @@
+{
+  "Name": "Arrival",
+  "ServerId": "f2a4c1d3e5b64a7f9c8d0e1f2a3b4c5d",
+  "Id": "3e5c7a9b1d2f4e6a8c0b2d4f6a8c0e2b",
+  "Type": "Movie",
+  "PremiereDate": "2016-11-10T00:00:00.0000000Z",
+  "CriticRating": 94,
+  "OfficialRating": "PG-13",
+  "ProductionYear": 2016,
+  "ProductionLocations": ["United States of America", "Canada"],
+  "Taglines": ["Why are they here?"],
+  "Studios": [
+    { "Name": "FilmNation Entertainment", "Id": "a1" },
+    { "Name": "Lava Bear Films", "Id": "a2" }
+  ],
+  "People": [
+    { "Name": "Amy Adams", "Id": "p1", "Role": "Louise Banks", "Type": "Actor", "PrimaryImageTag": "i-amy" },
+    { "Name": "Jeremy Renner", "Id": "p2", "Role": "Ian Donnelly", "Type": "Actor" },
+    { "Name": "Denis Villeneuve", "Id": "p3", "Role": "", "Type": "Director", "PrimaryImageTag": "i-denis" },
+    { "Name": "Eric Heisserer", "Id": "p4", "Role": "Screenplay", "Type": "Writer" }
+  ],
+  "MediaSources": [
+    {
+      "Id": "3e5c7a9b1d2f4e6a8c0b2d4f6a8c0e2b",
+      "Container": "mkv",
+      "Size": 58237419520,
+      "Bitrate": 66512000,
+      "MediaStreams": [
+        {
+          "Index": 0, "Type": "Video", "Codec": "hevc", "Profile": "Main 10", "Width": 3840, "Height": 2160,
+          "RealFrameRate": 23.976, "BitDepth": 10, "BitRate": 58000000, "VideoRange": "HDR",
+          "VideoRangeType": "DOVIWithEL", "DvProfile": 7, "DvLevel": 6, "DvBlSignalCompatibilityId": 6,
+          "ElPresentFlag": 1, "RpuPresentFlag": 1, "BlPresentFlag": 1, "DisplayTitle": "4K Dolby Vision"
+        },
+        {
+          "Index": 1, "Type": "Audio", "Codec": "truehd", "Profile": "Dolby TrueHD + Dolby Atmos", "Language": "eng",
+          "Channels": 8, "ChannelLayout": "7.1", "AudioSpatialFormat": "DolbyAtmos", "IsDefault": true,
+          "BitRate": 4500000, "DisplayTitle": "English - Dolby TrueHD + Dolby Atmos - 7.1 - Default"
+        },
+        {
+          "Index": 2, "Type": "Audio", "Codec": "ac3", "Language": "fre", "Channels": 6, "ChannelLayout": "5.1",
+          "IsDefault": false, "BitRate": 640000, "DisplayTitle": "French - Dolby Digital - 5.1"
+        },
+        {
+          "Index": 3, "Type": "Subtitle", "Codec": "PGSSUB", "Language": "eng", "IsForced": false,
+          "IsHearingImpaired": true, "IsTextSubtitleStream": false, "IsExternal": false, "DisplayTitle": "English - SDH - PGSSUB"
+        },
+        {
+          "Index": 4, "Type": "Subtitle", "Codec": "subrip", "Language": "fre", "IsForced": true,
+          "IsTextSubtitleStream": true, "IsExternal": true, "DisplayTitle": "French - Forced - SUBRIP - External"
+        }
+      ]
+    }
+  ]
+}

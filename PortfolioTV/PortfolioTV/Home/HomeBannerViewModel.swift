@@ -30,16 +30,17 @@ final class HomeBannerViewModel {
     /// it has.
     private(set) var showsLabels = true
     /// Whether the banner is its item's full-screen detail view: its details where a full-screen card has
-    /// them, and the card's actions in place of its buttons. Info opens it and Back closes it, moving the
-    /// details and cross-fading the buttons.
+    /// them, and the rest of the card's actions in place of its ›, its Play and Info being the card's own.
+    /// Info opens it and Back closes it, moving the details and buttons.
     private(set) var showsDetails = false
     /// Whether the details are away from the banner's own place: moving there, there, or moving back.
-    /// Only then can the actions take focus: hidden, they still drew focus moving between the banner's
-    /// buttons to what catches Left and Right. And the page can't scroll: focus moves between Info and
-    /// the actions while they're low on the screen, and tvOS scrolled the page to show them.
+    /// Only then can the rest of the actions take focus: hidden, they still drew focus moving between the
+    /// banner's buttons to what catches Left and Right. And the page can't scroll: focus moves among the
+    /// actions while they're low on the screen, and tvOS scrolled the page to show them.
     private(set) var detailsAreAway = false
     /// Whether the details are moving, either way. Focus stays on the button it was on through a move,
-    /// faded out to `focusableOpacity`, so the banner's buttons and the actions both take focus then.
+    /// one going away fading out only to `focusableOpacity`, so the banner's › and the rest of the
+    /// actions both take focus then.
     private(set) var detailsAreMoving = false
     /// Whether the banner is counting down to moving on by itself, which the page indicator shows.
     private(set) var isCountingDown = false
@@ -247,8 +248,8 @@ final class HomeBannerViewModel {
     // MARK: Opening the details
 
     /// Opens the item's full-screen detail view: moves the details and buttons to where a full-screen
-    /// card has them, the buttons cross-fading into the card's actions. Focus stays on Info meanwhile.
-    /// `then` runs once they're there, to move focus to the actions; `settled` once it has.
+    /// card has them, the › giving way to the rest of the card's actions. Focus stays on Info, the
+    /// detail view's Information. `then` runs once they're there, to call `settled`.
     func showDetails(then completion: @escaping () -> Void) {
         guard !detailsAreAway else { return }
         stopAdvancing()
@@ -262,7 +263,7 @@ final class HomeBannerViewModel {
     }
 
     /// Makes the banner its item's full-screen detail view at once, with nothing moving: behind the
-    /// player as it closes, after playing from the banner's own buttons. Focus moves to the actions once
+    /// player as it closes, after playing from the banner's own buttons. Focus moves to Play once
     /// the player has gone. A motion started under the player never said it had finished, leaving the
     /// banner moving for good, with focus on its hidden buttons.
     func showDetailsAtOnce() {
@@ -277,8 +278,8 @@ final class HomeBannerViewModel {
         }
     }
 
-    /// Back from the full-screen detail view: moves the details and buttons back, the actions
-    /// cross-fading into the buttons. Focus stays on the action it's on meanwhile. `then` runs once
+    /// Back from the full-screen detail view: moves the details and buttons back, the rest of the
+    /// actions giving way to the ›. Focus stays on the action it's on meanwhile. `then` runs once
     /// they're back, to move focus to the button it was on last; `settled` once it has.
     func hideDetails(then completion: @escaping () -> Void) {
         guard showsDetails, !detailsAreMoving else { return }

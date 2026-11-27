@@ -8,4 +8,7 @@ public protocol MediaImageResolver: Sendable {
     /// - Parameter pixelSize: the size it's drawn at, in pixels. Logos come back fitting inside it;
     ///   anything else comes back covering it, keeping its proportions. Neither is ever enlarged.
     func url(for item: MediaItem, _ kind: MediaImageKind, pixelSize: CGSize) -> URL?
+
+    /// Where `credit`'s person's picture is, covering `pixelSize`, or nil if they don't have one.
+    func url(for credit: Credit, pixelSize: CGSize) -> URL?
 }

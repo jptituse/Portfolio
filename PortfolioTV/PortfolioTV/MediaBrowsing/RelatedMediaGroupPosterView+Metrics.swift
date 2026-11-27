@@ -18,6 +18,9 @@ extension RelatedMediaGroupPosterView {
         static let titleSpacing: CGFloat = 4
         static let verticalPadding: CGFloat = 24
 
+        /// How many posters a row draws past the furthest one focus has reached, and from its start: more
+        /// than fit on the screen beside it, so it never shows one that isn't drawn.
+        static let postersDrawnAhead = 8
         /// How long focus stays on a poster before it widens.
         static let idleDelay: Duration = .seconds(5)
         /// A poster widening or going back to its normal width.

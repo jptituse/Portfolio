@@ -62,8 +62,8 @@ struct HomeView: View {
         // Played from the banner's own buttons, the banner opened its detail view behind the player as it
         // closed, but focus couldn't move there until the player had gone.
         .onChange(of: isPlayerUp) { _, isPlayerUp in
-            guard !isPlayerUp, banner.showsDetails, let item = banner.current else { return }
-            focus = .detail(item.id)
+            guard !isPlayerUp, banner.showsDetails else { return }
+            focus = .bannerPlay
         }
         // Play on the banner starts sooner for having asked where its item plays from while it had focus.
         .onChange(of: focus == .bannerPlay ? banner.current : nil) { _, item in
@@ -172,12 +172,12 @@ struct HomeView: View {
     }
 
     /// Makes the banner its item's full-screen detail view: it moves its details and buttons to where a
-    /// full-screen card has them, focus staying on Info, then focus moves to the actions.
+    /// full-screen card has them, focus staying on Info, which is the detail view's Information, then
+    /// the › it no longer shows stops taking focus.
     private func openDetails() {
-        guard let item = banner.current, banner.isIdle else { return }
-        let focus = $focus
+        guard banner.isIdle else { return }
         banner.showDetails {
-            moveFocus(focus, to: .detail(item.id))
+            banner.settled()
         }
     }
 
@@ -199,7 +199,8 @@ struct HomeView: View {
     }
 
     /// Back from the detail view: the banner moves everything back, focus staying on the action it's on,
-    /// then focus returns to the button it was on last, and the banner moves on by itself again.
+    /// then focus returns to the button it was on last if it was on one the banner doesn't show, and the
+    /// banner moves on by itself again.
     private func closeDetails() {
         let focus = $focus
         banner.hideDetails {

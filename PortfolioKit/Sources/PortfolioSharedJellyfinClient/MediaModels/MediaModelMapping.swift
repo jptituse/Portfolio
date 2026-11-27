@@ -78,6 +78,12 @@ extension MediaItem.Kind {
 
 extension MediaItem {
     init?(_ dto: BaseItemDto) {
+        self.init(dto, hasNewSeason: false)
+    }
+
+    /// - Parameter hasNewSeason: whether it's a show listed among the newest items for a season just
+    ///   added to it.
+    init?(_ dto: BaseItemDto, hasNewSeason: Bool) {
         guard let id = dto.id else { return nil }
         self.init(
             id: id,
@@ -98,9 +104,15 @@ extension MediaItem {
                     seriesID: dto.seriesID,
                     seasonNumber: dto.parentIndexNumber,
                     episodeNumber: dto.indexNumber,
+                    seasonName: dto.seasonName,
                     seriesImages: seriesImages(of: dto)
                 )
-                : nil
+                : nil,
+            dateAdded: dto.dateCreated,
+            criticRating: dto.criticRating.map(Double.init),
+            premiereDate: dto.premiereDate,
+            hasNewSeason: hasNewSeason,
+            version: dto.mediaSources?.first.map(MediaVersion.init)
         )
     }
 }

@@ -92,7 +92,16 @@ struct RelatedMediaGroupCarouselCardsView: View, @preconcurrency Animatable {
         let item = viewModel.group.items[index]
         let frame = layout.frame(of: index)
         let takesFocus = isExpanded && index == viewModel.highlightedIndex
-        return MediaDetailActionsView(card: viewModel.card(for: item), focus: focus, focusValue: .detail(item.id), isActive: takesFocus, onPlay: onPlay.map { play in { play(item, $0) } })
+        // The highlighted platter's details are asked for as it's highlighted, so they're in by the time
+        // it's full screen.
+        return MediaDetailActionsView(
+            card: viewModel.card(for: item),
+            focus: focus,
+            focusValue: .detail(item.id),
+            isActive: takesFocus,
+            onPlay: onPlay.map { play in { play(item, $0) } },
+            preparesDetails: index == viewModel.highlightedIndex
+        )
             .padding(.leading, layout.detailsLeadingPadding(of: index))
             .padding(.bottom, MediaCardView.Metrics.detailsBottomMargin)
             .frame(width: frame.width, height: frame.height, alignment: .bottomLeading)

@@ -43,7 +43,8 @@ public final class DevicePreferences {
         didSet { defaults.setEncoded(topShelf, forKey: Key.topShelf) }
     }
 
-    @ObservationIgnored private let defaults: UserDefaults
+    /// Where they're kept, as are the profiles' own: UI tests give each launch a fresh store.
+    @ObservationIgnored public let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

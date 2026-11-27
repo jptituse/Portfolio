@@ -90,6 +90,31 @@ struct ProfilePreferencesTests {
         MediaItem(id: id, name: id, kind: .episode, episode: EpisodeInfo(seriesID: show))
     }
 
+    @Test func keepsEachProfilesRatingsOfItsItems() {
+        let preferences = ProfilePreferences(profile: alex, defaults: defaults)
+        let arrival = MediaItem(id: "arrival", name: "Arrival", kind: .movie)
+        #expect(preferences.rating(of: arrival) == nil)
+
+        preferences.rate(arrival, stars: 4)
+
+        #expect(ProfilePreferences(profile: alex, defaults: defaults).rating(of: arrival) == 4)
+        #expect(ProfilePreferences(profile: sam, defaults: defaults).rating(of: arrival) == nil)
+        // In halves, from half a star to 5.
+        preferences.rate(arrival, stars: 3.5)
+        #expect(ProfilePreferences(profile: alex, defaults: defaults).rating(of: arrival) == 3.5)
+        // To the nearest half, up to 5.
+        preferences.rate(arrival, stars: 2.3)
+        #expect(preferences.rating(of: arrival) == 2.5)
+        preferences.rate(arrival, stars: 9)
+        #expect(preferences.rating(of: arrival) == 5)
+        // No stars at all takes it back.
+        preferences.rate(arrival, stars: 0)
+        #expect(preferences.rating(of: arrival) == nil)
+        preferences.rate(arrival, stars: 4)
+        preferences.rate(arrival, stars: nil)
+        #expect(ProfilePreferences(profile: alex, defaults: defaults).rating(of: arrival) == nil)
+    }
+
     @Test func keepsHowEachMovieOfEachProfilePlayedLast() {
         let preferences = ProfilePreferences(profile: alex, defaults: defaults)
         let arrival = MediaItem(id: "arrival", name: "Arrival", kind: .movie)

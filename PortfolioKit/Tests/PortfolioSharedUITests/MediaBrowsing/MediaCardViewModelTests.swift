@@ -89,6 +89,10 @@ struct MediaCardViewModelTests {
             let kind = "\(kind)".replacing(" ", with: "")
             return URL(string: "https://images.test/\(item.id)/\(kind)/\(Int(pixelSize.width))x\(Int(pixelSize.height))")
         }
+
+        func url(for credit: Credit, pixelSize: CGSize) -> URL? {
+            credit.imageTag == nil ? nil : URL(string: "https://images.test/people/\(credit.personID)/\(Int(pixelSize.width))x\(Int(pixelSize.height))")
+        }
     }
 
     func card(_ images: [MediaImageKind: String]) -> MediaCardViewModel {

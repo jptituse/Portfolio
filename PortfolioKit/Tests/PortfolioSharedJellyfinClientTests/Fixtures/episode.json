@@ -6,7 +6,9 @@
   "SeriesName": "Andor",
   "SeriesId": "5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
   "ParentIndexNumber": 1,
+  "SeasonName": "Season 1",
   "IndexNumber": 5,
+  "PremiereDate": "2022-10-04T00:00:00.0000000Z",
   "RunTimeTicks": 31200000000,
   "PrimaryImageAspectRatio": 1.7777777777777777,
   "ImageTags": {

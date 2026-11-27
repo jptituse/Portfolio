@@ -35,6 +35,20 @@ public struct JellyfinImageResolver: MediaImageResolver {
         return components.url
     }
 
+    public func url(for credit: Credit, pixelSize: CGSize) -> URL? {
+        guard let tag = credit.imageTag,
+            var components = URLComponents(url: server.url.appending(path: Self.path(for: credit.personID, .primary)), resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "tag", value: tag),
+            URLQueryItem(name: "fillWidth", value: String(Int(pixelSize.width.rounded(.up)))),
+            URLQueryItem(name: "fillHeight", value: String(Int(pixelSize.height.rounded(.up)))),
+            URLQueryItem(name: "quality", value: String(Self.quality)),
+        ]
+        return components.url
+    }
+
     /// Where the `kind` image of the item with `itemID` is: the item it belongs to, which may not be
     /// the one showing it.
     private static func path(for itemID: String, _ kind: MediaImageKind) -> String {

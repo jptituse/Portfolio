@@ -1,7 +1,5 @@
-import PortfolioShared
-
-/// Where focus is on Home, outside its rows: on the banner's buttons, or on the actions of the detail
-/// card its Info button opens.
+/// Where focus is on Home, outside its rows: on the banner's buttons, Play and Info being its detail
+/// view's too, once Info has made it that.
 enum HomeFocus: Hashable {
     case bannerPlay
     case bannerInfo
@@ -11,5 +9,4 @@ enum HomeFocus: Hashable {
     case bannerLeftEdge
     /// The same just right of them, while there's a banner after the one showing.
     case bannerRightEdge
-    case detail(MediaItem.ID)
 }
