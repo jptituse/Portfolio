@@ -56,6 +56,11 @@ public final class ProfilePreferences {
     public var hidesSpoilers: Bool {
         didSet { save(hidesSpoilers, Key.hidesSpoilers) }
     }
+    /// The profile's own ratings of items, half a star to 5 stars in halves, by item. Kept on this
+    /// device only.
+    public private(set) var ratings: [String: Double] {
+        didSet { save(ratings, Key.ratings) }
+    }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let prefix: String
@@ -77,6 +82,19 @@ public final class ProfilePreferences {
         segmentSkipping = load(Key.segmentSkipping, or: [:])
         credits = load(Key.credits, or: .upNext)
         hidesSpoilers = load(Key.hidesSpoilers, or: false)
+        ratings = load(Key.ratings, or: [:])
+    }
+
+    /// How many stars the profile gave `item`, if it rated it: 0.5 to 5, in halves.
+    public func rating(of item: MediaItem) -> Double? {
+        ratings[item.id]
+    }
+
+    /// Rates `item` half a star to 5 stars, to the nearest half, or takes its rating back: nil, or no
+    /// stars at all.
+    public func rate(_ item: MediaItem, stars: Double?) {
+        let halves = stars.map { min(10, max(0, ($0 * 2).rounded())) }
+        ratings[item.id] = halves.flatMap { $0 > 0 ? $0 / 2 : nil }
     }
 
     /// What happens at a kind of segment: shows a button to skip it unless it's been chosen otherwise.
@@ -131,6 +149,7 @@ public final class ProfilePreferences {
         static let segmentSkipping = "segmentSkipping"
         static let credits = "credits"
         static let hidesSpoilers = "hidesSpoilers"
+        static let ratings = "ratings"
         static let originalSubtitles = "originalSubtitles"
         static func item(_ id: String, _ setting: String) -> String { "items/\(id)/\(setting)" }
         static func group(_ id: String, _ setting: String) -> String { "groups/\(id)/\(setting)" }

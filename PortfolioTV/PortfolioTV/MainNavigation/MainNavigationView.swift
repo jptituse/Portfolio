@@ -21,6 +21,9 @@ struct MainNavigationView: View {
     @State private var player: PlayerViewModel?
     /// Shows what's playing's detail view behind the player as it closes, when it didn't open from there.
     @State private var showDetailsOnClose: (() -> Void)?
+    /// Whether Play on a show is waiting for the server to say which episode is next, so a second press
+    /// doesn't play it twice.
+    @State private var isFindingEpisode = false
     /// Whether the player is up, from Play until it has gone.
     @State private var isPlayerUp = false
     @FocusState private var focusedSection: MainSection?
@@ -75,14 +78,38 @@ struct MainNavigationView: View {
                             .compositingGroup()
                     }
                         .opacity(isShowing ? 1 : 0)
-                        .disabled(!isShowing)
-                        .accessibilityHidden(!isShowing)
+                        // Under an item's page, too, which takes focus and Back.
+                        .disabled(!isShowing || viewModel.showsDetailPage)
+                        .accessibilityHidden(!isShowing || viewModel.showsDetailPage)
+                }
+                // Each opens over the full-screen card it grows out of, looking just like it. The last may
+                // be built ahead, until the card's Information or Down reveals it: it waits off screen, not
+                // faded out, as a view that starts out transparent never takes focus, even once it shows.
+                let top = viewModel.detailPages.last(where: \.isRevealed)?.id
+                ForEach(viewModel.detailPages) { page in
+                    MediaDetailPageView(
+                        viewModel: page.viewModel,
+                        isRevealed: page.isRevealed,
+                        destination: page.destination,
+                        openedFrom: page.openedFrom,
+                        onPlay: play
+                    ) { action in
+                        viewModel.closeDetails(page.id, focusing: action)
+                    }
+                    .offset(x: page.isRevealed || page.isLeaving ? 0 : Metrics.offScreen)
+                    .opacity(page.opacity)
+                    .disabled(page.id != top)
+                    .accessibilityHidden(page.id != top)
+                    .transition(.identity)
                 }
             }
         }
         .environment(\.isPlayerUp, isPlayerUp)
         .environment(\.hidesSpoilers, currentProfile.preferences?.hidesSpoilers ?? false)
         .environment(\.preparePlayback, PreparePlaybackAction(currentProfile))
+        .environment(\.detailPages, DetailPagesAction(navigation: viewModel, profile: currentProfile))
+        .environment(\.prepareDetails, PrepareDetailsAction(currentProfile))
+        .environment(\.profilePreferences, currentProfile.preferences)
         .fullScreenCover(item: $player, onDismiss: playerDidClose) { player in
             PlayerView(viewModel: player, onClose: closePlayer)
         }
@@ -115,9 +142,25 @@ struct MainNavigationView: View {
         }
     }
 
-    /// Plays `item` full screen, from the profile's server, from the beginning or resuming.
-    /// `showDetails`, if given, shows its detail view behind the player as it closes.
+    /// Plays `item` full screen, from the profile's server, from the beginning or resuming. A show plays
+    /// its next episode (`CurrentProfileViewModel.nextEpisode(ofShow:)`), once the server has said which,
+    /// resuming it if the user is partway through. `showDetails`, if given, shows its detail view behind
+    /// the player as it closes.
     private func play(_ item: MediaItem, from start: PlaybackStart, showDetails: (() -> Void)?) {
+        guard item.kind == .series else {
+            present(item, from: start, showDetails: showDetails)
+            return
+        }
+        guard !isFindingEpisode else { return }
+        isFindingEpisode = true
+        Task {
+            let next = await currentProfile.nextEpisode(ofShow: item)
+            isFindingEpisode = false
+            if let next { present(next.episode, from: next.start, showDetails: showDetails) }
+        }
+    }
+
+    private func present(_ item: MediaItem, from start: PlaybackStart, showDetails: (() -> Void)?) {
         showDetailsOnClose = showDetails
         isPlayerUp = true
         player = currentProfile.makePlayer(for: item, from: start, makeEngine: makePlaybackEngine)
@@ -161,6 +204,8 @@ extension MainNavigationView {
         static let rowSpacing: CGFloat = 10
         static let separatorHeight: CGFloat = 2
         static let separatorInset: CGFloat = 20
+        /// Where an item's page waits, built ahead: past the right of any screen.
+        static let offScreen: CGFloat = 10_000
     }
 }
 

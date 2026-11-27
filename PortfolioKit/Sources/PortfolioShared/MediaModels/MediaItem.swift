@@ -1,3 +1,5 @@
+import Foundation
+
 /// A browsable or playable item: a movie, a series, an episode and so on.
 public struct MediaItem: Hashable, Sendable, Identifiable {
     public enum Kind: Hashable, Sendable {
@@ -33,6 +35,16 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
     public let userData: UserData
     /// Where it sits in its show, if it's an episode.
     public let episode: EpisodeInfo?
+    /// When it was added to its library, if known.
+    public let dateAdded: Date?
+    /// Critics' score out of 100, such as Rotten Tomatoes', if known.
+    public let criticRating: Double?
+    /// The day it came out, or an episode aired, if known: midnight UTC on that day.
+    public let premiereDate: Date?
+    /// Whether it's a show listed among the newest items for a season just added to it.
+    public let hasNewSeason: Bool
+    /// Its first version's file, where the list it came in says, as a show's list of episodes does.
+    public let version: MediaVersion?
 
     public init(
         id: String,
@@ -47,7 +59,12 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         images: [MediaImageKind: String] = [:],
         primaryImageAspectRatio: Double? = nil,
         userData: UserData = UserData(),
-        episode: EpisodeInfo? = nil
+        episode: EpisodeInfo? = nil,
+        dateAdded: Date? = nil,
+        criticRating: Double? = nil,
+        premiereDate: Date? = nil,
+        hasNewSeason: Bool = false,
+        version: MediaVersion? = nil
     ) {
         self.id = id
         self.name = name
@@ -62,6 +79,11 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         self.primaryImageAspectRatio = primaryImageAspectRatio
         self.userData = userData
         self.episode = episode
+        self.dateAdded = dateAdded
+        self.criticRating = criticRating
+        self.premiereDate = premiereDate
+        self.hasNewSeason = hasNewSeason
+        self.version = version
     }
 }
 

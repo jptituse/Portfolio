@@ -126,14 +126,14 @@ struct LibraryViewModelTests {
         library.sidebarItemFocused(.all)
         await waitUntil { library.shownSidebarItem == .all }
         try await Task.sleep(for: .milliseconds(250))
-        let requests = requests(to: mock, for: "DateCreated")
+        let requests = requests(to: mock, for: "sortBy=DateCreated")
 
         library.sidebarItemFocused(.recentlyAdded)
         await waitUntil { library.shownSidebarItem == .recentlyAdded }
 
         #expect(library.items.first?.name == "Movie 12")
-        await waitUntil { self.requests(to: mock, for: "DateCreated") > requests }
-        #expect(self.requests(to: mock, for: "DateCreated") == requests + 1)
+        await waitUntil { self.requests(to: mock, for: "sortBy=DateCreated") > requests }
+        #expect(self.requests(to: mock, for: "sortBy=DateCreated") == requests + 1)
     }
 
     @Test func doesNotCheckASidebarItemAgainThatHasJustLoaded() async throws {
@@ -148,7 +148,7 @@ struct LibraryViewModelTests {
 
         let allRequests = mock.requests.count { request in
             let query = request.url?.query() ?? ""
-            return request.url?.path == "/Items" && !query.contains("DateCreated") && !query.contains("genreIds")
+            return request.url?.path == "/Items" && !query.contains("sortBy=DateCreated") && !query.contains("genreIds")
         }
         #expect(allRequests == 1)
     }

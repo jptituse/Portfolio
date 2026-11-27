@@ -51,7 +51,8 @@ final class RootViewModel {
         if let currentProfile, currentProfile.profile == profile {
             return currentProfile.viewModel
         }
-        let viewModel = CurrentProfileViewModel(client: client, sessionManager: sessionManager, devicePreferences: preferences)
+        // Kept where the device's are, so UI tests' fresh store holds the profile's too.
+        let viewModel = CurrentProfileViewModel(client: client, sessionManager: sessionManager, devicePreferences: preferences, defaults: preferences.defaults)
         currentProfile = profile.map { ($0, viewModel) }
         return viewModel
     }

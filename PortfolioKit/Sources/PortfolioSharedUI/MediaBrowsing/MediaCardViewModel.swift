@@ -85,13 +85,24 @@ public final class MediaCardViewModel {
         return size.flatMap { images?.url(for: item, landscapeArtworkKind, pixelSize: $0) }
     }
 
+    /// Its file's format badges, as a full-screen card's ("4K", "Dolby Vision", "Dolby Atmos", "SDH"),
+    /// where its file came with it, as in a show's list of episodes; else none.
+    public var formatBadges: [String] {
+        item.version?.badges ?? []
+    }
+
+    /// The languages its audio comes in, as tags ("EN", "JA"), where its file came with it.
+    public var audioLanguageTags: [String] {
+        item.version?.audioLanguageTags ?? []
+    }
+
     // MARK: Progress
 
     /// The user's state for the item: the newest known, which can be newer than the item's own after
     /// playing it here.
     /// Whether its artwork gives away what happens in an episode the profile hasn't watched, to blur it
     /// while `hidingSpoilers`.
-    func isSpoiler(hidingSpoilers: Bool) -> Bool {
+    public func isSpoiler(hidingSpoilers: Bool) -> Bool {
         hidingSpoilers && item.episode != nil && !userData.isPlayed
     }
 

@@ -21,8 +21,22 @@ final class MediaCardExpansionViewModel {
     private(set) var layer: ViewState = .root
     /// True while the card starts on its focused poster, which tvOS draws lifted.
     private(set) var startsLifted = false
-    /// Whether the full-screen card's actions hold focus, so nothing behind them may take it.
+    /// Whether the full-screen card's actions hold focus.
     private(set) var holdsFocus = false
+    /// Whether the card is shrinking back onto its poster.
+    private(set) var isCollapsing = false
+
+    /// How much a poster shows while its card is open over it: too faint to see, but not transparent, or
+    /// it couldn't take focus back from the card, and tvOS put focus somewhere else, such as an item
+    /// page's top, which closed it.
+    static let hiddenPosterOpacity = 0.02
+
+    /// Whether what's behind the card may not take focus: while its actions hold focus, until it starts
+    /// shrinking. Taking focus again as it starts, it's ready for the poster to get focus as the card
+    /// lands; made to take focus only then, it couldn't yet, and tvOS picked something itself.
+    var blocksFocus: Bool {
+        holdsFocus && !isCollapsing
+    }
 
     /// Where each poster is, in global coordinates, so the card can start and end exactly on top of it.
     /// Not observed: posters report their frames as they scroll, which shouldn't redraw anything.
@@ -71,17 +85,21 @@ final class MediaCardExpansionViewModel {
     /// and then the card goes.
     func collapse(onCollapsed: @escaping () -> Void) {
         guard let card, layer == .preview else { return }
+        isCollapsing = true
         withAnimation(MediaCardView.Metrics.labelFadeOut) { card.showsLabels = false }
         // Only once the card is on its poster: removing it while it's still moving makes it jump onto
         // the poster.
         withAnimation(RelatedMediaGroupCarouselView.Metrics.layerChange, completionCriteria: .removed) {
             layer = .root
         } completion: { [self] in
-            // The poster gets focus before the card goes: removing the card first lets tvOS pick a
-            // poster itself.
-            holdsFocus = false
+            // The poster, which can take focus since the card started shrinking, gets it from the card's
+            // actions, and only then do they and the card go. Taken away first, tvOS picked something
+            // itself, such as an item page's first row, and focus went there and back; and removing the
+            // card first let tvOS pick a poster.
+            onCollapsed()
             Task { @MainActor in
-                onCollapsed()
+                holdsFocus = false
+                isCollapsing = false
                 self.card = nil
                 card.viewState = .preview
                 card.showsLabels = true

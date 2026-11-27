@@ -34,7 +34,7 @@ struct LibraryView: View {
                     margins: EdgeInsets(top: safeArea.top + Metrics.topPadding, leading: 0, bottom: safeArea.bottom, trailing: 0)
                 )
             }
-            .disabled(expansion.holdsFocus)
+            .disabled(expansion.blocksFocus)
 
             GeometryReader { proxy in
                 if let card = expansion.card {

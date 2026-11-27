@@ -19,7 +19,7 @@ extension MediaCardView {
         static let scrimOpacity = 0.85
         static let dimmedOpacity = 0.35
         /// Enough to hide what happens in an episode's still, leaving its colors.
-        static let spoilerBlur: CGFloat = 40
+        public static let spoilerBlur: CGFloat = 40
         static let titleLineLimit = 2
         /// The most a wide poster's logo takes up, at its bottom-leading corner.
         public static let logoSize = CGSize(width: 240, height: 90)

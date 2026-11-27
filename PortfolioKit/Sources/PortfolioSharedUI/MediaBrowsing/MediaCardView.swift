@@ -71,8 +71,15 @@ public struct MediaCardView: View {
                     .accessibilityHidden(true)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                // Who's in it, beside the details, once the card fills the screen.
+                MediaDetailCreditsView(card: viewModel)
+                    .padding(.trailing, Metrics.fullScreenDetailsLeadingPadding)
+                    .padding(.bottom, Metrics.detailsBottomMargin)
+                    .opacity(showsDetails && form == .fullScreen ? 1 : 0)
+            }
             .overlay(alignment: .bottomLeading) {
-                MediaDetailInfoView(viewModel: viewModel.detailInfo)
+                MediaDetailInfoView(card: viewModel)
                     .frame(width: MediaDetailInfoView.Metrics.width, alignment: .leading)
                     .padding(.leading, Metrics.detailsLeadingPadding(for: form))
                     .padding(.bottom, Metrics.detailsBottomPadding)

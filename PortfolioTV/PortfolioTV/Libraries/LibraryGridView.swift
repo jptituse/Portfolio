@@ -64,8 +64,9 @@ struct LibraryGridView: View {
                             }
                     }
                     .buttonStyle(MediaCardButtonStyle())
-                    // Hidden under its card while that's open.
-                    .opacity(expansion.item == item.id ? 0 : 1)
+                    // Hidden under its card while that's open, as faint as still takes focus, for its card to
+                    // hand focus back to.
+                    .opacity(expansion.item == item.id ? MediaCardExpansionViewModel.hiddenPosterOpacity : 1)
                     .focused(focus, equals: .poster(item.id))
                     .accessibilityIdentifier("library.poster")
                     .accessibilityLabel(item.name)
