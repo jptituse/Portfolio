@@ -35,8 +35,12 @@ public struct MediaDetailInfoView: View {
                         .font(Metrics.eventFont)
                         .padding(.horizontal, Metrics.eventHorizontalPadding)
                         .padding(.vertical, Metrics.eventVerticalPadding)
-                        // Backed as the buttons are.
+                        // Backed as the buttons are: visionOS has its own glass, not Liquid Glass.
+                        #if os(visionOS)
+                        .glassBackgroundEffect(in: .capsule)
+                        #else
                         .glassEffect(.regular, in: .capsule)
+                        #endif
                 }
                 logo
             }
