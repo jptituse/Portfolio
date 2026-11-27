@@ -7,7 +7,7 @@ import SwiftUI
 /// items, sliding each in over the last (`HomeBannerViewModel`); Left and Right move between them.
 /// Continue Watching overlaps its bottom, so its text sits above that. Info makes the banner the item's
 /// full-screen detail view (`showsDetails`), moving the details and buttons to where a full-screen card
-/// has them.
+/// has them: its Play and Info are the card's own, and the rest of the actions come in in place of ›.
 struct HomeBannerView: View {
     let viewModel: HomeBannerViewModel
     /// The screen's size, which the banner fills.
@@ -107,10 +107,9 @@ struct HomeBannerView: View {
     }
 
     /// The item's details (its logo or title, metadata and overview) and the buttons, which fade out
-    /// while banners move. The details are the very block an item's full-screen card shows, and the card's
-    /// actions sit where the buttons are: Info moves them to where the card has them while the banner's
-    /// buttons cross-fade into the actions. Whichever holds focus fades only as far as
-    /// `focusableOpacity`, so focus stays on it through the move.
+    /// while banners move. The details are the very block an item's full-screen card shows, and the
+    /// buttons are the card's actions: Info moves them to where the card has them, the › giving way to
+    /// the rest of the actions, so the Info focus is on is the very button that moves.
     private func labels(for item: MediaItem) -> some View {
         ZStack(alignment: .bottomLeading) {
             MediaDetailInfoView(card: viewModel.card(for: item))
@@ -121,48 +120,65 @@ struct HomeBannerView: View {
                 .padding(.bottom, MediaCardView.Metrics.actionsReservedHeight)
                 .opacity(viewModel.showsLabels ? 1 : 0)
             buttons(for: item)
-            MediaDetailActionsView(card: viewModel.card(for: item), focus: focus, focusValue: HomeFocus.detail(item.id), isActive: viewModel.detailsAreAway, onPlay: { onPlay(item, $0) })
-                .opacity(viewModel.showsDetails ? 1 : viewModel.detailsAreAway ? Metrics.focusableOpacity : 0)
         }
     }
 
-    /// Play (or Resume, where the user left off), Info and next. They, and what catches Left and Right,
-    /// fade only as far as `focusableOpacity`, too faint to see: focus can't move to, or stay on,
-    /// something faded out entirely, and it stays on the button it's on.
+    /// Play (or Resume, where the user left off), Info and next, which are the item's full-screen
+    /// actions' own Play and Information (`MediaDetailActionsView`), the › in the other actions' place
+    /// until the banner is the item's detail view. They, and what catches Left and Right, fade only as
+    /// far as `focusableOpacity`, too faint to see: focus can't move to, or stay on, something faded out
+    /// entirely, and it stays on the button it's on.
     private func buttons(for item: MediaItem) -> some View {
-        let opacity: Double = viewModel.showsLabels && !viewModel.showsDetails ? 1 : Metrics.focusableOpacity
-        let card = viewModel.card(for: item)
+        let opacity: Double = viewModel.showsLabels ? 1 : Metrics.focusableOpacity
         return HStack(spacing: Metrics.buttonSpacing) {
             // Left and Right from the buttons move between banners; Left from the first brings in the
             // sidebar, and Right from the last goes round to the first. Handling the move doesn't stop
             // tvOS moving focus into the sidebar, so while there's a banner either way, something
             // focusable waits on that side to catch the move instead, right beside the buttons.
             edgeCatcher(.bannerLeftEdge, isActive: viewModel.hasPrevious)
-            Button { onPlay(item, card.playStart) } label: {
-                PlayLabelView(card: card)
+                .disabled(!viewModel.buttonsTakeFocus)
+            // The banner's item's details are asked for as it shows, so they're in by the time Info opens.
+            MediaDetailActionsView(
+                card: viewModel.card(for: item),
+                focus: focus,
+                focusValue: .bannerPlay,
+                isActive: viewModel.detailsAreAway,
+                onPlay: { onPlay(item, $0) },
+                preparesDetails: true,
+                // Once the details are there and still: the page built as they ended held up the move.
+                buildsPage: viewModel.showsDetails && !viewModel.detailsAreMoving,
+                banner: .init(
+                    showsActions: viewModel.showsDetails,
+                    spacing: Metrics.buttonSpacing,
+                    opacity: opacity,
+                    informationFocus: .bannerInfo,
+                    onInfo: infoAction
+                )
+            ) {
+                HStack(spacing: Metrics.buttonSpacing) {
+                    Button(action: onNext) {
+                        Image(systemName: "chevron.right")
+                    }
+                    .disabled(!viewModel.hasNext)
+                    .focused(focus, equals: .bannerNext)
+                    .accessibilityLabel("Next")
+                    .accessibilityIdentifier("home.banner.next")
+                    .opacity(viewModel.showsDetails ? Metrics.focusableOpacity : opacity)
+                    edgeCatcher(.bannerRightEdge, isActive: viewModel.hasNext)
+                }
+                .disabled(!viewModel.buttonsTakeFocus)
+                .accessibilityHidden(viewModel.showsDetails)
             }
-            .focused(focus, equals: .bannerPlay)
-            .accessibilityIdentifier("home.banner.play")
-            .opacity(opacity)
-            Button("Info", systemImage: "info.circle", action: onInfo)
-                .labelStyle(.iconOnly)
-                .focused(focus, equals: .bannerInfo)
-                .accessibilityIdentifier("home.banner.info")
-                .opacity(opacity)
-            Button(action: onNext) {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(!viewModel.hasNext)
-            .focused(focus, equals: .bannerNext)
-            .accessibilityLabel("Next")
-            .accessibilityIdentifier("home.banner.next")
-            .opacity(opacity)
-            edgeCatcher(.bannerRightEdge, isActive: viewModel.hasNext)
         }
-        .buttonStyle(.glass)
-        .disabled(!viewModel.buttonsTakeFocus)
         // The left catcher sits in the margin, so Play lines up with the details above it.
         .padding(.leading, -(Metrics.catcherWidth + Metrics.buttonSpacing))
+    }
+
+    /// What Info does: makes the banner its item's detail view, and nothing while it's on its way. Nil
+    /// once it's there, so Information opens the item's page, as a full-screen card's does.
+    private var infoAction: (() -> Void)? {
+        guard viewModel.showsDetails else { return onInfo }
+        return viewModel.detailsAreMoving ? {} : nil
     }
 }
 

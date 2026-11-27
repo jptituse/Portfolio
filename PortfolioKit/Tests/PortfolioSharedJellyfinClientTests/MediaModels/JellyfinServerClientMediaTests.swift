@@ -92,6 +92,30 @@ struct JellyfinServerClientMediaTests {
         #expect(try query(of: mock.requests.last).contains(URLQueryItem(name: "parentId", value: movies.id)))
     }
 
+    @Test func listsASeasonWithNewEpisodesAsItsShowOnce() async throws {
+        let shows = MockJellyfinServer.Library(name: "TV Shows", collectionType: "tvshows")
+        // Elsewhere, so only its seasons are among the latest.
+        let stick = MockJellyfinServer.Item(name: "Stick", type: "Series", libraryID: "elsewhere")
+        var seasonOne = MockJellyfinServer.Item(name: "Season 1", type: "Season", libraryID: shows.id)
+        seasonOne.seriesID = stick.id
+        var seasonTwo = MockJellyfinServer.Item(name: "Season 2", type: "Season", libraryID: shows.id)
+        seasonTwo.seriesID = stick.id
+        let mock = MockJellyfinServer(libraries: [shows], items: [
+            seasonTwo,
+            .init(name: "Severance", type: "Series", libraryID: shows.id),
+            seasonOne,
+            stick,
+        ])
+        let session = try await signIn(to: mock)
+
+        let items = try await client.recentlyAdded(for: session, in: shows.id)
+
+        #expect(items.map(\.name) == ["Stick", "Severance"])
+        #expect(items.map(\.kind) == [.series, .series])
+        #expect(items.map(\.hasNewSeason) == [true, false])
+        #expect(try query(of: mock.requests.last).contains(URLQueryItem(name: "ids", value: stick.id)))
+    }
+
     @Test func listsWhatsPartlyWatchedWithHowFar() async throws {
         var arrival = MockJellyfinServer.Item(name: "Arrival")
         arrival.runtimeMinutes = 120

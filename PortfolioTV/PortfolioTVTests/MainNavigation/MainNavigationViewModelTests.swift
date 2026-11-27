@@ -51,4 +51,52 @@ struct MainNavigationViewModelTests {
         viewModel.selection = .home
         #expect(viewModel.sectionsToKeep == [.home, .search])
     }
+
+    // MARK: Item pages
+
+    func page(of card: MediaCardViewModel) -> MediaDetailViewModel {
+        MediaDetailViewModel(card: card, loadDetails: { throw CancellationError() })
+    }
+
+    @Test func opensThePageBuiltAheadForACardWhereItWasToOpen() {
+        let viewModel = viewModel()
+        let episode = MediaCardViewModel(item: MediaItem(id: "episode", name: "Episode", kind: .episode))
+        var built = 0
+
+        viewModel.prepareDetails(of: episode, opensAt: .card) { built += 1; return page(of: episode) }
+        #expect(viewModel.detailPages.map(\.destination) == [.card])
+        #expect(viewModel.detailPages.map(\.isRevealed) == [false])
+
+        viewModel.openDetails(of: episode, at: .card, from: .play, making: { built += 1; return page(of: episode) }) { _ in }
+        #expect(built == 1)
+        #expect(viewModel.detailPages.map(\.isRevealed) == [true])
+    }
+
+    @Test func buildsAnEpisodesPageAgainOnceItsClosed() throws {
+        let viewModel = viewModel()
+        let episode = MediaCardViewModel(item: MediaItem(id: "episode", name: "Episode", kind: .episode))
+        viewModel.openDetails(of: episode, at: .card, from: .play, making: { page(of: episode) }) { _ in }
+        let closed = try #require(viewModel.detailPages.first?.id)
+        viewModel.closeDetails(closed, focusing: .play)
+
+        viewModel.prepareDetails(of: episode, opensAt: .card) { page(of: episode) }
+        viewModel.openDetails(of: episode, at: .card, from: .play, making: { page(of: episode) }) { _ in }
+
+        // A page with no card under it goes once it has faded out; the next is built ahead again.
+        #expect(viewModel.detailPages.map(\.isRevealed) == [true])
+        #expect(viewModel.detailPages.first?.id != closed)
+    }
+
+    @Test func letsGoOfAPageBuiltAheadButNotOneShowing() {
+        let viewModel = viewModel()
+        let show = MediaCardViewModel(item: MediaItem(id: "show", name: "Show", kind: .series))
+        let episode = MediaCardViewModel(item: MediaItem(id: "episode", name: "Episode", kind: .episode))
+        viewModel.openDetails(of: show, at: .sections, from: .information, making: { page(of: show) }) { _ in }
+        viewModel.prepareDetails(of: episode, opensAt: .card) { page(of: episode) }
+
+        viewModel.discardDetails(of: episode)
+        viewModel.discardDetails(of: show)
+
+        #expect(viewModel.detailPages.map(\.viewModel.card.item.id) == ["show"])
+    }
 }

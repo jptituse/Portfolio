@@ -16,6 +16,8 @@ struct MediaCardExpansionView<Focus: Hashable>: View {
     /// Plays the card's item, from the beginning or resuming.
     let onPlay: (MediaItem, PlaybackStart) -> Void
 
+    @Environment(\.prepareDetails) private var prepareDetails
+
     var body: some View {
         let frame = viewModel.frame(in: globalFrame)
         ZStack(alignment: .topLeading) {
@@ -38,5 +40,7 @@ struct MediaCardExpansionView<Focus: Hashable>: View {
         .environment(\.viewState, viewModel.layer)
         .focusSection()
         .defaultFocus(focus, actionsFocus, priority: .userInitiated)
+        // As it starts to grow, so the details are in by the time it's full screen.
+        .onAppear { prepareDetails(card) }
     }
 }

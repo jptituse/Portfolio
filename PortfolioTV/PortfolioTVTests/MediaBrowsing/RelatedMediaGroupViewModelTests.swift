@@ -302,4 +302,23 @@ extension RelatedMediaGroupViewModelTests {
         #expect(!viewModel.card(for: group.items[0]).isWarm)
         #expect(viewModel.card(for: group.items[7]).isWarm)
     }
+
+    @Test func drawsThePostersFromTheStartAndAlwaysAheadOfFocus() {
+        let group = RelatedMediaGroup(id: "long", title: "Long", items: Array(MediaItem.samples.prefix(20)))
+        let viewModel = RelatedMediaGroupViewModel(group: group, idleDelay: .seconds(60))
+        let ahead = RelatedMediaGroupPosterView.Metrics.postersDrawnAhead
+        #expect(viewModel.isDrawn(ahead - 1))
+        #expect(!viewModel.isDrawn(ahead))
+
+        viewModel.posterFocused(group.items[3].id)
+        #expect(viewModel.isDrawn(3 + ahead))
+        #expect(!viewModel.isDrawn(4 + ahead))
+
+        // Never fewer once focus goes back, nor when the open row slides further along.
+        viewModel.posterFocused(group.items[0].id)
+        #expect(viewModel.isDrawn(3 + ahead))
+        viewModel.willOpen(on: group.items[0].id)
+        viewModel.highlightPlatter(group.items[6].id)
+        #expect(viewModel.isDrawn(6 + ahead))
+    }
 }

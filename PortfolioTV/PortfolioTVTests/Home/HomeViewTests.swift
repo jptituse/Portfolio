@@ -9,8 +9,7 @@ struct HomeViewTests {
         #expect(HomeView.isInBanner(focus))
     }
 
-    @Test func doesntCountTheDetailViewOrNothingAsTheBanner() {
-        #expect(!HomeView.isInBanner(.detail("item")))
+    @Test func doesntCountNothingAsTheBanner() {
         #expect(!HomeView.isInBanner(nil))
     }
 }

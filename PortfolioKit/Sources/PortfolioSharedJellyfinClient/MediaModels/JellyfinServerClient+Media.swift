@@ -4,7 +4,8 @@ import PortfolioShared
 
 extension JellyfinServerClient {
     /// The items most recently added to the user's libraries, or to one of them, newest first. New
-    /// episodes come as their series.
+    /// episodes come as their series, and a season with new episodes as its show, with
+    /// `hasNewSeason`: the server lists the season itself, which has no page of its own here.
     ///
     /// - Parameter libraryID: the library to look in, or nil for all of them but those the user has
     ///   left out of their latest items.
@@ -25,7 +26,42 @@ extension JellyfinServerClient {
             try await makeClient(url: session.server.url, accessToken: session.accessToken)
                 .send(Paths.getLatestMedia(parameters: parameters)).value
         }
-        return items.compactMap(MediaItem.init)
+        return await showsInPlaceOfSeasons(items, session: session)
+    }
+
+    /// `items` with each season in place of its show, once, marked as having a new season. The shows
+    /// are asked for together; a season whose show the server doesn't give stays as it is.
+    private func showsInPlaceOfSeasons(_ items: [BaseItemDto], session: UserSession) async -> [MediaItem] {
+        var showIDs: [String] = []
+        for item in items where item.type == .season {
+            if let show = item.seriesID, !showIDs.contains(show) { showIDs.append(show) }
+        }
+        var shows: [String: BaseItemDto] = [:]
+        if !showIDs.isEmpty {
+            var parameters = Paths.GetItemsParameters()
+            parameters.userID = session.user.id
+            parameters.ids = showIDs
+            parameters.fields = Self.cardFields
+            parameters.enableImages = true
+            parameters.imageTypeLimit = 1
+            parameters.enableImageTypes = Self.cardImageTypes
+            parameters.enableUserData = true
+            let found = try? await perform(.request) {
+                try await makeClient(url: session.server.url, accessToken: session.accessToken)
+                    .send(Paths.getItems(parameters: parameters)).value
+            }
+            for show in found?.items ?? [] {
+                if let id = show.id { shows[id] = show }
+            }
+        }
+        var listed: Set<String> = []
+        return items.compactMap { item in
+            if item.type == .season, let id = item.seriesID, let show = shows[id] {
+                return listed.insert(id).inserted ? MediaItem(show, hasNewSeason: true) : nil
+            }
+            guard let id = item.id, listed.insert(id).inserted else { return nil }
+            return MediaItem(item)
+        }
     }
 
     /// The items in a collection or playlist, in its order.
@@ -126,7 +162,7 @@ extension JellyfinServerClient {
     }
 
     /// The fields a card shows, beyond those Jellyfin always sends.
-    static let cardFields: [ItemFields] = [.overview, .genres, .primaryImageAspectRatio]
+    static let cardFields: [ItemFields] = [.overview, .genres, .primaryImageAspectRatio, .dateCreated]
     /// The images a card shows: poster, thumbnail, logo and backdrop.
     static let cardImageTypes: [ImageType] = [.primary, .thumb, .logo, .backdrop]
 }
