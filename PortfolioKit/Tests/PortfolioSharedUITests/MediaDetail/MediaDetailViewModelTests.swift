@@ -267,7 +267,7 @@ struct DescribingPictures: MediaImageResolver {
         nil
     }
 
-    func url(for credit: Credit, pixelSize: CGSize) -> URL? {
-        credit.imageTag == nil ? nil : URL(string: "https://images.test/people/\(credit.personID)/\(Int(pixelSize.width))")
+    func url(for person: Person, pixelSize: CGSize) -> URL? {
+        person.imageTag == nil ? nil : URL(string: "https://images.test/people/\(person.id)/\(Int(pixelSize.width))")
     }
 }

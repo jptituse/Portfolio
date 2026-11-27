@@ -16,6 +16,7 @@ struct MainNavigationView: View {
 
     @State private var viewModel: MainNavigationViewModel
     @State private var home: HomeViewModel
+    @State private var search: SearchViewModel
     @State private var settings: SettingsViewModel
     /// What's playing, while something is.
     @State private var player: PlayerViewModel?
@@ -38,6 +39,7 @@ struct MainNavigationView: View {
         self.makePlaybackEngine = makePlaybackEngine
         _viewModel = State(initialValue: MainNavigationViewModel(libraries: currentProfile.makeLibrariesViewModel()))
         _home = State(initialValue: currentProfile.makeHomeViewModel())
+        _search = State(initialValue: currentProfile.makeSearchViewModel())
         _settings = State(initialValue: currentProfile.makeSettingsViewModel(engine: playbackEngine))
     }
 
@@ -192,7 +194,7 @@ struct MainNavigationView: View {
         switch section {
         case .home: HomeView(viewModel: home, isShowing: isShowing, onPlay: play)
         case .library(let scope): LibraryView(viewModel: viewModel.libraries.viewModel(for: scope), isShowing: isShowing, onPlay: play)
-        case .search: SearchView()
+        case .search: SearchView(viewModel: search, onPlay: play)
         case .settings: SettingsView(viewModel: settings)
         }
     }

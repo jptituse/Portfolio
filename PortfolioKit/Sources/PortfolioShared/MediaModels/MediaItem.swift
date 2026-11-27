@@ -8,6 +8,7 @@ public struct MediaItem: Hashable, Sendable, Identifiable {
         case season
         case episode
         case boxSet
+        case musicVideo
         case folder
         /// Any other item type, kept as the server's raw value.
         case other(String)

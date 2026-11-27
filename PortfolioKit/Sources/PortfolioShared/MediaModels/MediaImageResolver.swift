@@ -9,6 +9,13 @@ public protocol MediaImageResolver: Sendable {
     ///   anything else comes back covering it, keeping its proportions. Neither is ever enlarged.
     func url(for item: MediaItem, _ kind: MediaImageKind, pixelSize: CGSize) -> URL?
 
+    /// Where `person`'s picture is, covering `pixelSize`, or nil if they don't have one.
+    func url(for person: Person, pixelSize: CGSize) -> URL?
+}
+
+extension MediaImageResolver {
     /// Where `credit`'s person's picture is, covering `pixelSize`, or nil if they don't have one.
-    func url(for credit: Credit, pixelSize: CGSize) -> URL?
+    public func url(for credit: Credit, pixelSize: CGSize) -> URL? {
+        url(for: credit.person, pixelSize: pixelSize)
+    }
 }

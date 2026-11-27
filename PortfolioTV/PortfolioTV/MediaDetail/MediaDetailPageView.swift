@@ -213,7 +213,8 @@ struct MediaDetailPageView: View {
                 row("Cast & Crew") {
                     ForEach(viewModel.people) { person in
                         MediaDetailPersonView(
-                            person: person,
+                            name: person.name,
+                            role: person.role,
                             pictureURL: viewModel.pictureURL(of: person, pixelSize: Metrics.pictureSize * displayScale)
                         )
                         .focused($focus, equals: .person(person.id))

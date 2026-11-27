@@ -69,6 +69,7 @@ extension MediaItem.Kind {
         case .season: self = .season
         case .episode: self = .episode
         case .boxSet: self = .boxSet
+        case .musicVideo: self = .musicVideo
         case .folder, .collectionFolder: self = .folder
         case let other?: self = .other(other.rawValue)
         case nil: self = .other("Unknown")

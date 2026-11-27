@@ -425,6 +425,9 @@ public final class MockJellyfinServer: Sendable {
         case ("GET", "/Items"):
             guard account(for: request) != nil else { return Response(status: 401) }
             return Response(status: 200, json: itemsResponse(for: request))
+        case ("GET", "/Persons"):
+            guard account(for: request) != nil else { return Response(status: 401) }
+            return Response(status: 200, json: personsResponse(for: request))
         case ("GET", "/Genres"):
             guard account(for: request) != nil else { return Response(status: 401) }
             let names = Set(matchingItems(for: request).flatMap(\.genres)).sorted()
@@ -554,19 +557,41 @@ public final class MockJellyfinServer: Sendable {
     }
 
     /// The items a `/Items` or `/Genres` request asks about: in its library (`ParentId`), of its types
-    /// (`IncludeItemTypes`), in its genre (`GenreIds`).
+    /// (`IncludeItemTypes`), in its genre (`GenreIds`), whose names contain its search term
+    /// (`SearchTerm`, ignoring case).
     private func matchingItems(for request: URLRequest) -> [Item] {
         let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
         let parent = query.first { $0.name == "parentId" }?.value
         let types = query.filter { $0.name == "includeItemTypes" }.compactMap(\.value)
         let genres = query.filter { $0.name == "genreIds" }.compactMap(\.value)
         let ids = query.filter { $0.name == "ids" }.compactMap(\.value).flatMap { $0.split(separator: ",").map(String.init) }
+        let term = query.first { $0.name == "searchTerm" }?.value
         return items.filter { item in
             (ids.isEmpty || ids.contains(item.id))
                 && (parent == nil || item.libraryID == parent)
                 && (types.isEmpty || types.contains(item.type))
                 && (genres.isEmpty || item.genres.contains { genres.contains(Self.genreID($0)) })
+                && (term.map { item.name.localizedCaseInsensitiveContains($0) } ?? true)
         }
+    }
+
+    /// `/Persons`, as Jellyfin answers it: everyone credited on its items, once each, by name, whose
+    /// names contain the search term (`SearchTerm`, ignoring case), up to its limit.
+    private func personsResponse(for request: URLRequest) -> [String: Any] {
+        let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+        let term = query.first { $0.name == "searchTerm" }?.value
+        var seen: Set<String> = []
+        let people = items.flatMap(\.people)
+            .filter { seen.insert($0.id).inserted }
+            .filter { person in term.map { person.name.localizedCaseInsensitiveContains($0) } ?? true }
+            .sorted { $0.name.lowercased() < $1.name.lowercased() }
+        let limit = query.first { $0.name == "limit" }?.value.flatMap(Int.init) ?? people.count
+        let page = people.prefix(limit).map { person in
+            var json: [String: Any] = ["Id": person.id, "Name": person.name, "Type": "Person", "ServerId": id]
+            json["ImageTags"] = person.imageTag.map { ["Primary": $0] } ?? [:]
+            return json
+        }
+        return ["Items": page, "TotalRecordCount": people.count, "StartIndex": 0]
     }
 
     /// A page of `/Items`: sorted by name, or with `DateCreated` (or `DateLastContentAdded`) first, in

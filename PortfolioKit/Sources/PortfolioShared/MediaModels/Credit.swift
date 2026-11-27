@@ -24,6 +24,11 @@ public struct Credit: Hashable, Sendable, Identifiable {
 
     public var id: String { "\(personID)/\(kind)/\(role ?? "")" }
 
+    /// Who's credited.
+    public var person: Person {
+        Person(id: personID, name: name, imageTag: imageTag)
+    }
+
     public init(personID: String, name: String, kind: Kind, role: String? = nil, imageTag: String? = nil) {
         self.personID = personID
         self.name = name
