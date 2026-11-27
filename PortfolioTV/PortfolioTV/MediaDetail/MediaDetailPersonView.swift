@@ -1,16 +1,18 @@
 import PortfolioSharedUI
 import SwiftUI
 
-/// Someone in an item's cast and crew: their picture in a circle that grows with focus, their name, and
-/// the character they play or their part, as the TV app's.
+/// Someone in an item's cast and crew, or found by Search: their picture in a circle that grows with
+/// focus, their name, and the character they play or their part, if there's one, as the TV app's.
 struct MediaDetailPersonView: View {
-    let person: MediaDetailViewModel.Person
+    let name: String
+    /// The character they play, or their part: "Director".
+    let role: String?
     let pictureURL: URL?
 
     var body: some View {
         // FIXME: Open the person's page, with what they're in (#44).
         Button {} label: {
-            Label(person: person, pictureURL: pictureURL)
+            Label(name: name, role: role, pictureURL: pictureURL)
         }
         .buttonStyle(MediaCardButtonStyle())
         .accessibilityElement(children: .combine)
@@ -21,7 +23,8 @@ extension MediaDetailPersonView {
     /// The picture grows and casts a shadow with focus, the names moving down with it. The system's
     /// highlight drew a rounded square around the circle.
     struct Label: View {
-        let person: MediaDetailViewModel.Person
+        let name: String
+        let role: String?
         let pictureURL: URL?
         @Environment(\.isFocused) private var isFocused
 
@@ -33,9 +36,9 @@ extension MediaDetailPersonView {
                     .scaleEffect(isFocused ? Metrics.focusedScale : 1)
                     .shadow(color: .black.opacity(isFocused ? Metrics.shadowOpacity : 0), radius: Metrics.shadowRadius, y: Metrics.shadowOffset)
                     .padding(.bottom, Metrics.pictureSpacing + (isFocused ? Metrics.size * (Metrics.focusedScale - 1) / 2 : 0))
-                Text(person.name)
+                Text(name)
                     .font(.callout)
-                if let role = person.role {
+                if let role {
                     Text(role)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -46,6 +49,11 @@ extension MediaDetailPersonView {
             .animation(Metrics.focusMotion, value: isFocused)
         }
 
+        /// "AA" for Amy Adams, for someone without a picture.
+        static func initials(of name: String) -> String {
+            name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
+        }
+
         private var picture: some View {
             RemoteImageView(url: pictureURL) { image in
                 image
@@ -54,7 +62,7 @@ extension MediaDetailPersonView {
             } placeholder: {
                 ZStack {
                     Color.white.opacity(Metrics.placeholderOpacity)
-                    Text(person.initials)
+                    Text(Self.initials(of: name))
                         .font(.title2)
                         .foregroundStyle(.secondary)
                 }
@@ -73,12 +81,5 @@ extension MediaDetailPersonView {
         static let shadowRadius: CGFloat = 20
         static let shadowOffset: CGFloat = 12
         static var focusMotion: Animation { .easeOut(duration: 0.2) }
-    }
-}
-
-private extension MediaDetailViewModel.Person {
-    /// "AA" for Amy Adams, for someone without a picture.
-    var initials: String {
-        name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
     }
 }

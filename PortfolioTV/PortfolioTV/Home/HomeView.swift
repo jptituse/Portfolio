@@ -97,6 +97,24 @@ struct HomeView: View {
     }
 
     @ViewBuilder private var content: some View {
+        #if DEBUG
+        if Self.showsSampleRow {
+            MediaBrowsingView(groups: [.sample]) { EmptyView() }
+        } else {
+            loadedContent
+        }
+        #else
+        loadedContent
+        #endif
+    }
+
+    #if DEBUG
+    /// UI tests ask for the sample row in place of what Home loads, for posters to browse: the sample
+    /// session's server doesn't exist.
+    private static let showsSampleRow = ProcessInfo.processInfo.environment["PORTFOLIO_SAMPLE_ROW"] != nil
+    #endif
+
+    @ViewBuilder private var loadedContent: some View {
         if viewModel.bannerItems.isEmpty && viewModel.groups.isEmpty {
             status
         } else if viewModel.bannerItems.isEmpty {

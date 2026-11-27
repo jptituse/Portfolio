@@ -25,6 +25,14 @@ extension Credit {
     }
 }
 
+extension Person {
+    /// Someone as `/Persons` lists them.
+    init?(_ dto: BaseItemDto) {
+        guard let id = dto.id, let name = dto.name else { return nil }
+        self.init(id: id, name: name, imageTag: dto.imageTags?[ImageType.primary.rawValue])
+    }
+}
+
 extension Credit.Kind {
     init(_ kind: PersonKind?) {
         switch kind {

@@ -78,6 +78,11 @@ public final class CurrentProfileViewModel {
         )
     }
 
+    /// Search, of the profile's server.
+    public func makeSearchViewModel() -> SearchViewModel {
+        SearchViewModel(client: client, session: sessionManager.state.session, userDataUpdates: userDataUpdates)
+    }
+
     /// The profile's libraries, loading from their server.
     public func makeLibrariesViewModel() -> LibrariesViewModel {
         LibrariesViewModel(client: client, session: sessionManager.state.session, userDataUpdates: userDataUpdates)

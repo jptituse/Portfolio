@@ -127,6 +127,7 @@ final class MediaDetailInfoViewModel {
         case .movie: String(localized: "Movie")
         case .series, .season, .episode: String(localized: "TV Show")
         case .boxSet: String(localized: "Collection")
+        case .musicVideo: String(localized: "Music Video")
         case .folder, .other: nil
         }
     }

@@ -35,9 +35,9 @@ public struct JellyfinImageResolver: MediaImageResolver {
         return components.url
     }
 
-    public func url(for credit: Credit, pixelSize: CGSize) -> URL? {
-        guard let tag = credit.imageTag,
-            var components = URLComponents(url: server.url.appending(path: Self.path(for: credit.personID, .primary)), resolvingAgainstBaseURL: false) else {
+    public func url(for person: Person, pixelSize: CGSize) -> URL? {
+        guard let tag = person.imageTag,
+            var components = URLComponents(url: server.url.appending(path: Self.path(for: person.id, .primary)), resolvingAgainstBaseURL: false) else {
             return nil
         }
         components.queryItems = [
