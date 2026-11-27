@@ -300,14 +300,14 @@ struct PlayerViewModelTests {
         return player
     }
 
-    @Test func showsItsControlsOnAPressAndHidesThemAgainWhilePlaying() async throws {
+    @Test func showsItsControlsOnAPressAndHidesThemAgainWhilePlaying() async {
         let player = await playingPlayer(controlsTimeout: .milliseconds(30))
         #expect(!player.showsControls)
 
         player.showControls()
         #expect(player.showsControls)
 
-        try await Task.sleep(for: .milliseconds(200))
+        await waitUntil { !player.showsControls }
         #expect(!player.showsControls)
     }
 
@@ -1316,7 +1316,7 @@ struct PlayerViewModelTests {
         #expect(player.showsControls)
 
         player.holdControls(false)
-        try await Task.sleep(for: .milliseconds(200))
+        await waitUntil { !player.showsControls }
         #expect(!player.showsControls)
     }
 
